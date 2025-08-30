@@ -3,7 +3,7 @@ const jwt = require("jsonwebtoken");
 const fs = require("fs");
 const path = require("path");
 const nodemailer = require("nodemailer");
-const multer = require("multer");
+// const multer = require("multer"); // Temporarily commented out
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -18,17 +18,17 @@ const DEPLOYED_URL = "https://pdfsecurity.onrender.com"; // Change this to your 
 // Store authorized recipients with their specific tokens (in production, use a database)
 const AUTHORIZED_RECIPIENTS = new Map(); // email -> token mapping
 
-// Configure multer for file uploads
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    cb(null, './uploads/')
-  },
-  filename: function (req, file, cb) {
-    cb(null, 'edited-resume-' + Date.now() + '.pdf')
-  }
-});
+// Configure multer for file uploads (temporarily disabled)
+// const storage = multer.diskStorage({
+//   destination: function (req, file, cb) {
+//     cb(null, './uploads/')
+//   },
+//   filename: function (req, file, cb) {
+//     cb(null, 'edited-resume-' + Date.now() + '.pdf')
+//   }
+// });
 
-const upload = multer({ storage: storage });
+// const upload = multer({ storage: storage });
 
 // Create uploads directory if it doesn't exist
 if (!fs.existsSync('./uploads')) {
@@ -88,8 +88,8 @@ app.get("/send-email/:email", async (req, res) => {
   }
 });
 
-// Route to send edited PDF back to owner
-app.post("/send-back", upload.single('pdf'), async (req, res) => {
+// Route to send edited PDF back to owner (temporarily disabled)
+app.post("/send-back", async (req, res) => {
   const { token, recipientEmail } = req.body;
   
   try {
@@ -101,32 +101,8 @@ app.post("/send-back", upload.single('pdf'), async (req, res) => {
       return res.status(403).send({ success: false, error: "Unauthorized recipient" });
     }
     
-    if (!req.file) {
-      return res.status(400).send({ success: false, error: "No PDF file uploaded" });
-    }
-
-    // Send email to owner with the edited PDF
-    let transporter = nodemailer.createTransport({
-      service: "gmail",
-      auth: {
-        user: "shreyagaikwad107@gmail.com",
-        pass: "ukrb lzop ycqs epvi",
-      },
-    });
-
-    let info = await transporter.sendMail({
-      from: '"PDF Editor" <shreyagaikwad107@gmail.com>',
-      to: OWNER_EMAIL,
-      subject: `Edited PDF from ${recipientEmail}`,
-      text: `The PDF has been edited by ${recipientEmail} and sent back to you.`,
-      attachments: [{
-        filename: req.file.originalname || 'edited-resume.pdf',
-        path: req.file.path
-      }]
-    });
-
-    console.log("Edited PDF sent back to owner:", info.messageId);
-    res.send({ success: true, message: "Edited PDF sent back to owner successfully" });
+    // Temporarily disabled file upload functionality
+    res.send({ success: true, message: "File upload functionality temporarily disabled" });
   } catch (error) {
     console.error("Error sending back PDF:", error);
     res.status(500).send({ success: false, error: error.message });
@@ -215,7 +191,7 @@ app.get("/send", (req, res) => {
 
 // View route (shows PDF with editing capabilities)
 app.get("/view", (req, res) => {
-  const { token, userEmail } = req.query;
+  const { token } = req.query;
 
   try {
     const decoded = jwt.verify(token, SECRET_KEY);
@@ -236,72 +212,6 @@ app.get("/view", (req, res) => {
         <body>
             <h1 class="error">Access Denied</h1>
             <p>You are not authorized to access this PDF. Only the original recipient can use this link.</p>
-        </body>
-        </html>
-      `);
-    }
-
-    // If no userEmail provided, show email verification form
-    if (!userEmail) {
-      return res.send(`
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>Email Verification Required</title>
-            <style>
-                body { font-family: Arial, sans-serif; max-width: 500px; margin: 50px auto; padding: 20px; }
-                .form-container { background: #f5f5f5; padding: 30px; border-radius: 10px; }
-                input[type="email"] { width: 100%; padding: 10px; margin: 10px 0; border: 1px solid #ddd; border-radius: 5px; }
-                button { background: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; }
-                button:hover { background: #0056b3; }
-                .error { color: red; }
-            </style>
-        </head>
-        <body>
-            <div class="form-container">
-                <h2>Email Verification Required</h2>
-                <p>Please enter your email address to verify access to this PDF:</p>
-                <form id="emailForm">
-                    <input type="email" id="email" placeholder="Enter your email address" required>
-                    <button type="submit">Verify Access</button>
-                </form>
-                <div id="message"></div>
-            </div>
-            
-            <script>
-                document.getElementById('emailForm').addEventListener('submit', function(e) {
-                    e.preventDefault();
-                    const email = document.getElementById('email').value;
-                    const messageDiv = document.getElementById('message');
-                    
-                    if (email === '${tokenEmail}') {
-                        messageDiv.innerHTML = '<p style="color: green;">Access verified! Loading PDF...</p>';
-                        window.location.href = '/view?token=${token}&userEmail=' + encodeURIComponent(email);
-                    } else {
-                        messageDiv.innerHTML = '<p class="error">Access denied. This link was sent to ${tokenEmail}. Only that email can access this PDF.</p>';
-                    }
-                });
-            </script>
-        </body>
-        </html>
-      `);
-    }
-
-    // Verify that the userEmail matches the token email
-    if (userEmail !== tokenEmail) {
-      return res.status(403).send(`
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>Access Denied</title>
-            <style>
-                body { font-family: Arial, sans-serif; text-align: center; margin: 50px; }
-                .error { color: red; }
-            </style>
-        </head>
-        <body>
-            <h1 class="error">Access Denied</h1>
-            <p>This link was sent to ${tokenEmail}. Only that email can access this PDF.</p>
         </body>
         </html>
       `);
@@ -338,16 +248,16 @@ app.get("/view", (req, res) => {
                              <div class="header">
                    <h1>📄 PDF Viewer & Editor</h1>
                    <div>
-                       <span>Welcome, ${userEmail}</span>
-                       ${userEmail !== '${OWNER_EMAIL}' ? '<span style="color: #28a745;">(Recipient)</span>' : '<span style="color: #007bff;">(Owner)</span>'}
+                       <span>Welcome, ${tokenEmail}</span>
+                       ${tokenEmail !== '${OWNER_EMAIL}' ? '<span style="color: #28a745;">(Recipient)</span>' : '<span style="color: #007bff;">(Owner)</span>'}
                    </div>
                </div>
               
                              <div class="pdf-container">
-                   <iframe src="/pdf-content?token=${token}&userEmail=${encodeURIComponent(userEmail)}" width="100%" height="100%" frameborder="0"></iframe>
+                   <iframe src="/pdf-content?token=${token}" width="100%" height="100%" frameborder="0"></iframe>
                </div>
               
-                             ${userEmail !== '${OWNER_EMAIL}' ? `
+                             ${tokenEmail !== '${OWNER_EMAIL}' ? `
                <div class="upload-section">
                    <h3>📤 Send Edited PDF Back to Owner</h3>
                    <p>After editing the PDF, upload it here to send it back to the owner.</p>
@@ -362,12 +272,12 @@ app.get("/view", (req, res) => {
           </div>
           
                      <script>
-               ${userEmail !== '${OWNER_EMAIL}' ? `
+               ${tokenEmail !== '${OWNER_EMAIL}' ? `
                document.getElementById('uploadForm').addEventListener('submit', async function(e) {
                    e.preventDefault();
                    const formData = new FormData(this);
                    formData.append('token', '${token}');
-                   formData.append('recipientEmail', '${userEmail}');
+                   formData.append('recipientEmail', '${tokenEmail}');
                   
                   const statusDiv = document.getElementById('uploadStatus');
                   statusDiv.innerHTML = '<div class="status">Sending edited PDF...</div>';
@@ -416,7 +326,7 @@ app.get("/view", (req, res) => {
 
 // Route to serve PDF content
 app.get("/pdf-content", (req, res) => {
-  const { token, userEmail } = req.query;
+  const { token } = req.query;
 
   try {
     const decoded = jwt.verify(token, SECRET_KEY);
@@ -424,11 +334,6 @@ app.get("/pdf-content", (req, res) => {
 
     // Check if user is authorized (owner or specifically authorized recipient with matching token)
     if (tokenEmail !== OWNER_EMAIL && (!AUTHORIZED_RECIPIENTS.has(tokenEmail) || AUTHORIZED_RECIPIENTS.get(tokenEmail) !== token)) {
-      return res.status(403).send("Access denied");
-    }
-
-    // Verify that the userEmail matches the token email
-    if (userEmail && userEmail !== tokenEmail) {
       return res.status(403).send("Access denied");
     }
 
