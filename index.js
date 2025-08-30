@@ -260,7 +260,7 @@ app.get("/send", (req, res) => {
   `);
 });
 
-// View route (shows PDF with editing capabilities for authorized users only)
+// View route (shows Google sign-in for recipients, PDF viewer for authenticated users)
 app.get("/view", (req, res) => {
   const { token } = req.query;
 
@@ -293,18 +293,160 @@ app.get("/view", (req, res) => {
       `);
     }
 
+    // For recipients, show Google sign-in first
+    if (!isOwner) {
+      return res.send(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Recipient Authentication Required</title>
+            <meta name="google-signin-client_id" content="796807919718-rogn5gjojli6i0pl2d5brv4uqqqereah.apps.googleusercontent.com">
+            <script src="https://accounts.google.com/gsi/client" async defer></script>
+            <style>
+                body { font-family: Arial, sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; background: #f5f5f5; }
+                .container { background: white; padding: 40px; border-radius: 15px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); text-align: center; }
+                .logo { font-size: 48px; margin-bottom: 20px; }
+                h1 { color: #333; margin-bottom: 10px; }
+                .subtitle { color: #666; margin-bottom: 30px; font-size: 18px; }
+                .google-signin { margin: 30px 0; }
+                .security-info { background: #e7f3ff; padding: 20px; border-radius: 10px; margin: 30px 0; border: 1px solid #b3d9ff; text-align: left; }
+                .status { margin: 20px 0; padding: 15px; border-radius: 8px; font-weight: bold; }
+                .success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+                .error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+                .warning { background: #fff3cd; color: #856404; border: 1px solid #ffeaa7; }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="logo">🔒</div>
+                <h1>Recipient Authentication Required</h1>
+                <p class="subtitle">You've been invited to view and edit a secure PDF</p>
+                
+                <div class="warning" style="margin: 20px 0;">
+                    <strong>⚠️ Important:</strong> You must sign in with the Google account that received the invitation email: <strong>${tokenEmail}</strong>
+                </div>
+                
+                <div class="google-signin">
+                    <div id="google-signin-button">
+                        <button id="fallback-button" onclick="showManualSignin()" style="background: #4285f4; color: white; padding: 12px 24px; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; display: block;">
+                            🔐 Sign in with Google
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="security-info">
+                    <strong>🔐 How it works:</strong>
+                    <ul style="margin: 15px 0; padding-left: 20px;">
+                        <li>Click "Sign in with Google" above</li>
+                        <li>Select the Google account: <strong>${tokenEmail}</strong></li>
+                        <li>If authentication matches, PDF opens automatically</li>
+                        <li>You can then view and edit the PDF in your browser</li>
+                        <li>No downloads allowed - view and edit only</li>
+                    </ul>
+                </div>
+                
+                <div id="status"></div>
+            </div>
+            
+            <script>
+                // Check if Google Identity Services loaded properly
+                window.addEventListener('load', function() {
+                    // Wait a bit for Google script to load
+                    setTimeout(function() {
+                        if (typeof google !== 'undefined' && google.accounts) {
+                            console.log('Google Identity Services loaded successfully');
+                            
+                            // Initialize Google Sign-In
+                            google.accounts.id.initialize({
+                                client_id: '796807919718-rogn5gjojli6i0pl2d5brv4uqqqereah.apps.googleusercontent.com',
+                                callback: handleCredentialResponse
+                            });
+                            
+                            // Render the button
+                            google.accounts.id.renderButton(
+                                document.getElementById('google-signin-button'),
+                                { 
+                                    theme: 'outline', 
+                                    size: 'large',
+                                    text: 'signin_with',
+                                    shape: 'rectangular'
+                                }
+                            );
+                            
+                            // Hide the fallback button
+                            const fallbackButton = document.getElementById('fallback-button');
+                            if (fallbackButton) {
+                                fallbackButton.style.display = 'none';
+                            }
+                        } else {
+                            console.error('Google Identity Services failed to load');
+                            document.getElementById('google-signin-button').innerHTML = 
+                                '<button onclick="showManualSignin()" style="background: #4285f4; color: white; padding: 12px 24px; border: none; border-radius: 8px; cursor: pointer;">Sign in with Google (Manual)</button>';
+                        }
+                    }, 2000);
+                });
+
+                function handleCredentialResponse(response) {
+                    // Decode the JWT token from Google
+                    const payload = JSON.parse(atob(response.credential.split('.')[1]));
+                    const userEmail = payload.email;
+                    
+                    console.log('User selected:', userEmail);
+                    
+                    // Verify the email matches the invited recipient
+                    if (userEmail === '${tokenEmail}') {
+                        showStatus('✅ Authentication successful! Opening PDF...', 'success');
+                        // Redirect to the actual PDF viewer
+                        setTimeout(() => {
+                            window.location.href = '/pdf-viewer?token=${token}';
+                        }, 1500);
+                    } else {
+                        showStatus('❌ Authentication failed! You must sign in with ${tokenEmail}', 'error');
+                    }
+                }
+
+                function showManualSignin() {
+                    const email = prompt('Please enter your email address:');
+                    if (email) {
+                        if (email === '${tokenEmail}') {
+                            showStatus('✅ Email verified! Opening PDF...', 'success');
+                            setTimeout(() => {
+                                window.location.href = '/pdf-viewer?token=${token}';
+                            }, 1500);
+                        } else {
+                            showStatus('❌ Email does not match the invited recipient', 'error');
+                        }
+                    }
+                }
+                
+                function showStatus(message, type) {
+                    const statusDiv = document.getElementById('status');
+                    statusDiv.innerHTML = '<div class="status ' + type + '">' + message + '</div>';
+                    statusDiv.style.display = 'block';
+                    
+                    setTimeout(() => {
+                        statusDiv.style.display = 'none';
+                    }, 5000);
+                }
+            </script>
+        </body>
+        </html>
+      `);
+    }
+
+    // For owner, show the PDF viewer directly
     const filePath = path.join(__dirname, "resume.pdf");
 
     if (!fs.existsSync(filePath)) {
       return res.status(404).send("File not found.");
     }
 
-    // Send the PDF viewer page with editing capabilities for authorized users
+    // Send the PDF viewer page with editing capabilities for owner
     res.send(`
       <!DOCTYPE html>
       <html>
       <head>
-          <title>Secure PDF Viewer & Editor</title>
+          <title>Secure PDF Viewer & Editor - Owner Access</title>
           <style>
               body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }
               .container { max-width: 1200px; margin: 0 auto; background: white; border-radius: 10px; padding: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
@@ -314,6 +456,7 @@ app.get("/view", (req, res) => {
               button { background: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; margin: 5px; }
               button:hover { background: #0056b3; }
               .security-notice { background: #fff3cd; color: #856404; padding: 15px; border-radius: 5px; margin: 20px 0; border: 1px solid #ffeaa7; }
+              .owner-badge { background: #28a745; color: white; padding: 5px 10px; border-radius: 15px; font-size: 12px; }
           </style>
       </head>
       <body>
@@ -322,19 +465,131 @@ app.get("/view", (req, res) => {
                   <h1>🔒 Secure PDF Viewer & Editor</h1>
                   <div>
                       <span>Welcome, ${tokenEmail}</span>
-                      ${isOwner ? '<span style="color: #007bff;">(Owner - Full Access)</span>' : '<span style="color: #28a745;">(Authorized Recipient - Can Edit)</span>'}
+                      <span class="owner-badge">Owner - Full Access</span>
                   </div>
               </div>
               
               <div class="security-notice">
-                  <strong>🔐 Security Notice:</strong> This PDF opens directly in your browser. No external editors are allowed for security reasons.
+                  <strong>🔐 Owner Access:</strong> You have full access to view, edit, and download this PDF.
               </div>
               
               <div class="pdf-container">
                   <iframe src="/pdf-content?token=${token}" class="pdf-iframe" frameborder="0"></iframe>
               </div>
               
+              <div style="margin-top: 20px; text-align: center;">
+                  <button onclick="window.open('/send', '_blank')">📧 Send Secure Links to Recipients</button>
+                  <button onclick="window.open('/', '_blank')">🌐 Manage Access</button>
+              </div>
+          </div>
+      </body>
+      </html>
+    `);
+  } catch (err) {
+    res.status(403).send(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+          <title>Access Denied</title>
+          <style>
+              body { font-family: Arial, sans-serif; text-align: center; margin: 50px; }
+              .error { color: red; }
+          </style>
+      </head>
+      <body>
+          <h1 class="error">Access Denied</h1>
+          <p>Invalid or expired link.</p>
+      </body>
+      </html>
+    `);
+  }
+});
 
+// Route for recipients to view and edit PDF after Google authentication
+app.get("/pdf-viewer", (req, res) => {
+  const { token } = req.query;
+
+  try {
+    const decoded = jwt.verify(token, SECRET_KEY);
+    const tokenEmail = decoded.email;
+
+    // Check if user is authorized recipient with matching token
+    const isAuthorizedRecipient = AUTHORIZED_RECIPIENTS.has(tokenEmail) && 
+                                 AUTHORIZED_RECIPIENTS.get(tokenEmail).token === token &&
+                                 AUTHORIZED_RECIPIENTS.get(tokenEmail).canEdit;
+
+    if (!isAuthorizedRecipient) {
+      return res.status(403).send(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Access Denied</title>
+            <style>
+                body { font-family: Arial, sans-serif; text-align: center; margin: 50px; }
+                .error { color: red; }
+            </style>
+        </head>
+        <body>
+            <h1 class="error">Access Denied</h1>
+            <p>You are not authorized to access this PDF.</p>
+        </body>
+        </html>
+      `);
+    }
+
+    const filePath = path.join(__dirname, "resume.pdf");
+
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).send("File not found.");
+    }
+
+    // Send the PDF viewer page with editing capabilities for recipients
+    res.send(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+          <title>Secure PDF Viewer & Editor - Recipient Access</title>
+          <style>
+              body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }
+              .container { max-width: 1200px; margin: 0 auto; background: white; border-radius: 10px; padding: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+              .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 20px; border-bottom: 1px solid #eee; }
+              .pdf-container { width: 100%; height: 600px; border: 1px solid #ddd; border-radius: 5px; position: relative; }
+              .pdf-iframe { width: 100%; height: 100%; border: none; }
+              button { background: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; margin: 5px; }
+              button:hover { background: #0056b3; }
+              .security-notice { background: #fff3cd; color: #856404; padding: 15px; border-radius: 5px; margin: 20px 0; border: 1px solid #ffeaa7; }
+              .recipient-badge { background: #17a2b8; color: white; padding: 5px 10px; border-radius: 15px; font-size: 12px; }
+              .text-input { position: absolute; display: none; padding: 5px; border: 2px solid #007bff; border-radius: 3px; background: white; z-index: 1000; }
+              .status { margin: 20px 0; padding: 15px; border-radius: 8px; font-weight: bold; display: none; }
+              .success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+              .error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+          </style>
+      </head>
+      <body>
+          <div class="container">
+              <div class="header">
+                  <h1>🔒 Secure PDF Viewer & Editor</h1>
+                  <div>
+                      <span>Welcome, ${tokenEmail}</span>
+                      <span class="recipient-badge">Recipient - Can Edit</span>
+                  </div>
+              </div>
+              
+              <div class="security-notice">
+                  <strong>🔐 Security Notice:</strong> This PDF opens directly in your browser. No external editors are allowed for security reasons. You can view and edit, but cannot download.
+              </div>
+              
+              <div class="pdf-container">
+                  <iframe src="/pdf-content?token=${token}" class="pdf-iframe" frameborder="0"></iframe>
+                  <input type="text" id="textInput" class="text-input" placeholder="Type your text here...">
+              </div>
+              
+              <div style="margin-top: 20px; text-align: center;">
+                  <button onclick="saveChanges()">💾 Save Changes</button>
+                  <button onclick="uploadToOwner()" id="uploadBtn" disabled style="opacity: 0.5;">📤 Send to Owner</button>
+              </div>
+              
+              <div id="status"></div>
           </div>
           
           <script>
@@ -429,7 +684,7 @@ app.get("/view", (req, res) => {
                   showStatus('💾 Changes saved successfully! You can now send the edited PDF to the owner.', 'success');
                   
                   // Enable upload button
-                  const uploadBtn = document.querySelector('.upload-button');
+                  const uploadBtn = document.getElementById('uploadBtn');
                   if (uploadBtn) {
                       uploadBtn.disabled = false;
                       uploadBtn.style.opacity = '1';
@@ -477,7 +732,7 @@ app.get("/view", (req, res) => {
               // Show status messages
               function showStatus(message, type) {
                   const statusDiv = document.getElementById('status');
-                  statusDiv.innerHTML = '<div class="' + type + '">' + message + '</div>';
+                  statusDiv.innerHTML = '<div class="status ' + type + '">' + message + '</div>';
                   statusDiv.style.display = 'block';
                   
                   setTimeout(() => {
@@ -701,7 +956,7 @@ app.get("/", (req, res) => {
     <head>
         <title>Secure PDF Access</title>
         <meta name="google-signin-client_id" content="796807919718-rogn5gjojli6i0pl2d5brv4uqqqereah.apps.googleusercontent.com">
-        <script src="https://accounts.google.com/gsi/client" async defer></script>
+        <script src="https://accounts.google.com/gsi/client" async defer onload="updateDebugInfo('Google script loaded')" onerror="updateDebugInfo('Google script failed to load')"></script>
         <style>
             body { font-family: Arial, sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; background: #f5f5f5; }
             .container { background: white; padding: 40px; border-radius: 15px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); text-align: center; }
@@ -725,20 +980,10 @@ app.get("/", (req, res) => {
             <p class="subtitle">Select your Google account to access the secure PDF</p>
             
             <div class="google-signin">
-                <div id="g_id_onload"
-                     data-client_id="796807919718-rogn5gjojli6i0pl2d5brv4uqqqereah.apps.googleusercontent.com"
-                     data-context="signin"
-                     data-ux_mode="popup"
-                     data-callback="handleCredentialResponse"
-                     data-auto_prompt="false">
-                </div>
-                <div class="g_id_signin"
-                     data-type="standard"
-                     data-shape="rectangular"
-                     data-theme="outline"
-                     data-text="signin_with"
-                     data-size="large"
-                     data-logo_alignment="left">
+                <div id="google-signin-button">
+                    <button id="fallback-button" onclick="showManualSignin()" style="background: #4285f4; color: white; padding: 12px 24px; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; display: block;">
+                        🔐 Sign in with Google
+                    </button>
                 </div>
             </div>
             
@@ -759,9 +1004,63 @@ app.get("/", (req, res) => {
             </div>
             
             <div id="status"></div>
+            <div id="debug-info" style="margin-top: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px; font-size: 12px; color: #666;">
+                <strong>Debug Info:</strong>
+                <div id="debug-content">Loading...</div>
+            </div>
         </div>
         
         <script>
+            // Check if Google Identity Services loaded properly
+            window.addEventListener('load', function() {
+                updateDebugInfo('Page loaded, checking Google Identity Services...');
+                
+                // Wait a bit for Google script to load
+                setTimeout(function() {
+                    if (typeof google !== 'undefined' && google.accounts) {
+                        updateDebugInfo('✅ Google Identity Services loaded successfully');
+                        console.log('Google Identity Services loaded successfully');
+                        
+                        // Initialize Google Sign-In
+                        google.accounts.id.initialize({
+                            client_id: '796807919718-rogn5gjojli6i0pl2d5brv4uqqqereah.apps.googleusercontent.com',
+                            callback: handleCredentialResponse
+                        });
+                        
+                        // Render the button
+                        google.accounts.id.renderButton(
+                            document.getElementById('google-signin-button'),
+                            { 
+                                theme: 'outline', 
+                                size: 'large',
+                                text: 'signin_with',
+                                shape: 'rectangular'
+                            }
+                        );
+                        
+                        // Hide the fallback button
+                        const fallbackButton = document.getElementById('fallback-button');
+                        if (fallbackButton) {
+                            fallbackButton.style.display = 'none';
+                        }
+                        
+                        updateDebugInfo('✅ Google Sign-In button rendered');
+                    } else {
+                        updateDebugInfo('❌ Google Identity Services failed to load. Showing manual sign-in.');
+                        console.error('Google Identity Services failed to load');
+                        document.getElementById('google-signin-button').innerHTML = 
+                            '<button onclick="showManualSignin()" style="background: #4285f4; color: white; padding: 12px 24px; border: none; border-radius: 8px; cursor: pointer; font-size: 16px;">Sign in with Google (Manual)</button>';
+                    }
+                }, 2000); // Wait 2 seconds for Google script to load
+            });
+
+            function updateDebugInfo(message) {
+                const debugContent = document.getElementById('debug-content');
+                if (debugContent) {
+                    debugContent.innerHTML += '<br>' + new Date().toLocaleTimeString() + ': ' + message;
+                }
+            }
+
             function handleCredentialResponse(response) {
                 // Decode the JWT token from Google
                 const payload = JSON.parse(atob(response.credential.split('.')[1]));
@@ -771,6 +1070,13 @@ app.get("/", (req, res) => {
                 
                 // Check if user is authorized
                 checkAccess(userEmail);
+            }
+
+            function showManualSignin() {
+                const email = prompt('Please enter your email address:');
+                if (email) {
+                    checkAccess(email);
+                }
             }
             
             function checkAccess(email) {
@@ -857,8 +1163,9 @@ app.listen(PORT, "0.0.0.0", async () => {
   console.log(`• PDF access page: ${DEPLOYED_URL}/`);
   
   console.log(`\n🔒 Security Features:`);
-  console.log(`• Google OAuth account selection - no email typing required`);
-  console.log(`• Only chosen recipients can edit PDFs`);
+  console.log(`• Google OAuth for BOTH owner AND recipients - no email typing required`);
+  console.log(`• Recipients must authenticate with Google before accessing PDFs`);
+  console.log(`• Only chosen recipients can edit PDFs after Google authentication`);
   console.log(`• PDFs open directly in Chrome browser`);
   console.log(`• No external editors allowed`);
   console.log(`• Text editing with keyboard input - click anywhere to add text`);
