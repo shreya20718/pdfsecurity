@@ -215,14 +215,14 @@ app.get("/send", (req, res) => {
 
 // View route (shows PDF with editing capabilities)
 app.get("/view", (req, res) => {
-  const { token } = req.query;
+  const { token, userEmail } = req.query;
 
   try {
     const decoded = jwt.verify(token, SECRET_KEY);
-    const email = decoded.email;
+    const tokenEmail = decoded.email;
 
     // Check if user is authorized (owner or specifically authorized recipient with matching token)
-    if (email !== OWNER_EMAIL && (!AUTHORIZED_RECIPIENTS.has(email) || AUTHORIZED_RECIPIENTS.get(email) !== token)) {
+    if (tokenEmail !== OWNER_EMAIL && (!AUTHORIZED_RECIPIENTS.has(tokenEmail) || AUTHORIZED_RECIPIENTS.get(tokenEmail) !== token)) {
       return res.status(403).send(`
         <!DOCTYPE html>
         <html>
@@ -236,6 +236,72 @@ app.get("/view", (req, res) => {
         <body>
             <h1 class="error">Access Denied</h1>
             <p>You are not authorized to access this PDF. Only the original recipient can use this link.</p>
+        </body>
+        </html>
+      `);
+    }
+
+    // If no userEmail provided, show email verification form
+    if (!userEmail) {
+      return res.send(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Email Verification Required</title>
+            <style>
+                body { font-family: Arial, sans-serif; max-width: 500px; margin: 50px auto; padding: 20px; }
+                .form-container { background: #f5f5f5; padding: 30px; border-radius: 10px; }
+                input[type="email"] { width: 100%; padding: 10px; margin: 10px 0; border: 1px solid #ddd; border-radius: 5px; }
+                button { background: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; }
+                button:hover { background: #0056b3; }
+                .error { color: red; }
+            </style>
+        </head>
+        <body>
+            <div class="form-container">
+                <h2>Email Verification Required</h2>
+                <p>Please enter your email address to verify access to this PDF:</p>
+                <form id="emailForm">
+                    <input type="email" id="email" placeholder="Enter your email address" required>
+                    <button type="submit">Verify Access</button>
+                </form>
+                <div id="message"></div>
+            </div>
+            
+            <script>
+                document.getElementById('emailForm').addEventListener('submit', function(e) {
+                    e.preventDefault();
+                    const email = document.getElementById('email').value;
+                    const messageDiv = document.getElementById('message');
+                    
+                    if (email === '${tokenEmail}') {
+                        messageDiv.innerHTML = '<p style="color: green;">Access verified! Loading PDF...</p>';
+                        window.location.href = '/view?token=${token}&userEmail=' + encodeURIComponent(email);
+                    } else {
+                        messageDiv.innerHTML = '<p class="error">Access denied. This link was sent to ${tokenEmail}. Only that email can access this PDF.</p>';
+                    }
+                });
+            </script>
+        </body>
+        </html>
+      `);
+    }
+
+    // Verify that the userEmail matches the token email
+    if (userEmail !== tokenEmail) {
+      return res.status(403).send(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Access Denied</title>
+            <style>
+                body { font-family: Arial, sans-serif; text-align: center; margin: 50px; }
+                .error { color: red; }
+            </style>
+        </head>
+        <body>
+            <h1 class="error">Access Denied</h1>
+            <p>This link was sent to ${tokenEmail}. Only that email can access this PDF.</p>
         </body>
         </html>
       `);
@@ -269,39 +335,39 @@ app.get("/view", (req, res) => {
       </head>
       <body>
           <div class="container">
-              <div class="header">
-                  <h1>📄 PDF Viewer & Editor</h1>
-                  <div>
-                      <span>Welcome, ${email}</span>
-                      ${email !== '${OWNER_EMAIL}' ? '<span style="color: #28a745;">(Recipient)</span>' : '<span style="color: #007bff;">(Owner)</span>'}
-                  </div>
-              </div>
+                             <div class="header">
+                   <h1>📄 PDF Viewer & Editor</h1>
+                   <div>
+                       <span>Welcome, ${userEmail}</span>
+                       ${userEmail !== '${OWNER_EMAIL}' ? '<span style="color: #28a745;">(Recipient)</span>' : '<span style="color: #007bff;">(Owner)</span>'}
+                   </div>
+               </div>
               
-              <div class="pdf-container">
-                  <iframe src="/pdf-content?token=${token}" width="100%" height="100%" frameborder="0"></iframe>
-              </div>
+                             <div class="pdf-container">
+                   <iframe src="/pdf-content?token=${token}&userEmail=${encodeURIComponent(userEmail)}" width="100%" height="100%" frameborder="0"></iframe>
+               </div>
               
-              ${email !== '${OWNER_EMAIL}' ? `
-              <div class="upload-section">
-                  <h3>📤 Send Edited PDF Back to Owner</h3>
-                  <p>After editing the PDF, upload it here to send it back to the owner.</p>
-                  <form id="uploadForm" enctype="multipart/form-data">
-                      <input type="file" name="pdf" accept=".pdf" required style="margin: 10px 0; padding: 10px; border: 1px solid #ddd; border-radius: 5px; width: 100%;">
-                      <br>
-                      <button type="submit">Send Back to Owner</button>
-                  </form>
-                  <div id="uploadStatus"></div>
-              </div>
-              ` : ''}
+                             ${userEmail !== '${OWNER_EMAIL}' ? `
+               <div class="upload-section">
+                   <h3>📤 Send Edited PDF Back to Owner</h3>
+                   <p>After editing the PDF, upload it here to send it back to the owner.</p>
+                   <form id="uploadForm" enctype="multipart/form-data">
+                       <input type="file" name="pdf" accept=".pdf" required style="margin: 10px 0; padding: 10px; border: 1px solid #ddd; border-radius: 5px; width: 100%;">
+                       <br>
+                       <button type="submit">Send Back to Owner</button>
+                   </form>
+                   <div id="uploadStatus"></div>
+               </div>
+               ` : ''}
           </div>
           
-          <script>
-              ${email !== '${OWNER_EMAIL}' ? `
-              document.getElementById('uploadForm').addEventListener('submit', async function(e) {
-                  e.preventDefault();
-                  const formData = new FormData(this);
-                  formData.append('token', '${token}');
-                  formData.append('recipientEmail', '${email}');
+                     <script>
+               ${userEmail !== '${OWNER_EMAIL}' ? `
+               document.getElementById('uploadForm').addEventListener('submit', async function(e) {
+                   e.preventDefault();
+                   const formData = new FormData(this);
+                   formData.append('token', '${token}');
+                   formData.append('recipientEmail', '${userEmail}');
                   
                   const statusDiv = document.getElementById('uploadStatus');
                   statusDiv.innerHTML = '<div class="status">Sending edited PDF...</div>';
@@ -350,14 +416,19 @@ app.get("/view", (req, res) => {
 
 // Route to serve PDF content
 app.get("/pdf-content", (req, res) => {
-  const { token } = req.query;
+  const { token, userEmail } = req.query;
 
   try {
     const decoded = jwt.verify(token, SECRET_KEY);
-    const email = decoded.email;
+    const tokenEmail = decoded.email;
 
     // Check if user is authorized (owner or specifically authorized recipient with matching token)
-    if (email !== OWNER_EMAIL && (!AUTHORIZED_RECIPIENTS.has(email) || AUTHORIZED_RECIPIENTS.get(email) !== token)) {
+    if (tokenEmail !== OWNER_EMAIL && (!AUTHORIZED_RECIPIENTS.has(tokenEmail) || AUTHORIZED_RECIPIENTS.get(tokenEmail) !== token)) {
+      return res.status(403).send("Access denied");
+    }
+
+    // Verify that the userEmail matches the token email
+    if (userEmail && userEmail !== tokenEmail) {
       return res.status(403).send("Access denied");
     }
 
