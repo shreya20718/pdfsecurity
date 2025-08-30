@@ -12,7 +12,7 @@ const SECRET_KEY = "supersecret"; // use env var in real projects
 const OWNER_EMAIL = "shreyagaikwad107@gmail.com";
 
 // This will be your deployed URL - UPDATE THIS AFTER DEPLOYMENT
-const DEPLOYED_URL = "https://your-app-name.onrender.com"; // Change this to your actual deployed URL
+const DEPLOYED_URL = "https://pdfsecurity.onrender.com"; // Change this to your actual deployed URL
 
 // Generate a secure download link for recipient
 app.get("/generate-link", (req, res) => {
@@ -20,7 +20,7 @@ app.get("/generate-link", (req, res) => {
   const recipientEmail = email || OWNER_EMAIL;
   
   const token = jwt.sign({ email: recipientEmail }, SECRET_KEY, {
-    expiresIn: "24h",
+    expiresIn: "12h",
   });
 
   const link = `${DEPLOYED_URL}/view?token=${token}`;
@@ -35,7 +35,7 @@ app.get("/send-email/:email", async (req, res) => {
   try {
     // Create token for the specified email
     const token = jwt.sign({ email: email }, SECRET_KEY, {
-      expiresIn: "24h",
+      expiresIn: "12h",
     });
 
     const secureLink = `${DEPLOYED_URL}/view?token=${token}`;
@@ -52,7 +52,7 @@ app.get("/send-email/:email", async (req, res) => {
       from: '"Shreya Gaikwad" <shreyagaikwad107@gmail.com>',
       to: email,
       subject: "Your Secured PDF Link",
-      text: `Hello, here is your secure PDF link (valid for 24h): ${secureLink}`,
+      text: `Hello, here is your secure PDF link (valid for 12h): ${secureLink}`,
     });
 
     console.log("Email sent to:", email, "Message ID:", info.messageId);
@@ -279,7 +279,7 @@ app.get("/", (req, res) => {
 async function sendSecureLink() {
   // Create token
   const token = jwt.sign({ email: OWNER_EMAIL }, SECRET_KEY, {
-    expiresIn: "24h",
+    expiresIn: "12h",
   });
 
   const secureLink = `${DEPLOYED_URL}/view?token=${token}`;
@@ -296,7 +296,7 @@ async function sendSecureLink() {
     from: '"Shreya Gaikwad" <shreyagaikwad107@gmail.com>',
     to: OWNER_EMAIL,
     subject: "Your Secured PDF Link",
-    text: `Hello, here is your secure PDF link (valid for 24h): ${secureLink}`,
+    text: `Hello, here is your secure PDF link (valid for 12h): ${secureLink}`,
   });
 
   console.log("Email sent:", info.messageId);
