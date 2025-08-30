@@ -88,6 +88,31 @@ app.get("/send-email/:email", async (req, res) => {
   }
 });
 
+// Route to check if a recipient is authorized
+app.get("/check-recipient", (req, res) => {
+  const { email } = req.query;
+  
+  if (!email) {
+    return res.status(400).send({ authorized: false, error: "Email required" });
+  }
+  
+  // Check if user is owner
+  if (email === OWNER_EMAIL) {
+    return res.send({ authorized: true, role: "owner" });
+  }
+  
+  // Check if user is authorized recipient
+  if (AUTHORIZED_RECIPIENTS.has(email)) {
+    const recipient = AUTHORIZED_RECIPIENTS.get(email);
+    if (recipient.canEdit) {
+      return res.send({ authorized: true, role: "recipient" });
+    }
+  }
+  
+  // User not authorized
+  res.send({ authorized: false, role: "unauthorized" });
+});
+
 // Route to send edited PDF back to owner (IMMEDIATE)
 app.post("/send-back", upload.single('pdf'), async (req, res) => {
   const { token, recipientEmail } = req.body;
@@ -649,7 +674,7 @@ app.get("/pdf-content", (req, res) => {
   }
 });
 
-// Route for direct access - shows email form for unauthorized users
+// Route for direct access - shows Google account picker
 app.get("/", (req, res) => {
   const { token } = req.query;
   
@@ -665,78 +690,128 @@ app.get("/", (req, res) => {
         return res.redirect(`/view?token=${token}`);
       }
     } catch (err) {
-      // Token invalid or expired, show email form
+      // Token invalid or expired, show account picker
     }
   }
   
-  // Show email form for unauthorized users
+  // Show Google account picker for unauthorized users
   res.send(`
     <!DOCTYPE html>
     <html>
     <head>
         <title>Secure PDF Access</title>
+        <meta name="google-signin-client_id" content="796807919718-rogn5gjojli6i0pl2d5brv4uqqqereah.apps.googleusercontent.com">
+        <script src="https://accounts.google.com/gsi/client" async defer></script>
         <style>
-            body { font-family: Arial, sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; }
-            .form-container { background: #f5f5f5; padding: 30px; border-radius: 10px; }
-            input[type="email"] { width: 100%; padding: 10px; margin: 10px 0; border: 1px solid #ddd; border-radius: 5px; }
-            button { background: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; margin: 5px; }
-            button:hover { background: #0056b3; }
-            .security-info { background: #e7f3ff; padding: 15px; border-radius: 5px; margin: 20px 0; border: 1px solid #b3d9ff; }
-            .url-info { background: #d4edda; padding: 15px; border-radius: 5px; margin: 20px 0; border: 1px solid #c3e6cb; }
-            .owner-actions { margin-top: 20px; text-align: center; }
+            body { font-family: Arial, sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; background: #f5f5f5; }
+            .container { background: white; padding: 40px; border-radius: 15px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); text-align: center; }
+            .logo { font-size: 48px; margin-bottom: 20px; }
+            h1 { color: #333; margin-bottom: 10px; }
+            .subtitle { color: #666; margin-bottom: 30px; font-size: 18px; }
+            .google-signin { margin: 30px 0; }
+            .security-info { background: #e7f3ff; padding: 20px; border-radius: 10px; margin: 30px 0; border: 1px solid #b3d9ff; text-align: left; }
+            .owner-actions { margin-top: 30px; }
+            .owner-btn { background: #28a745; color: white; padding: 12px 24px; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; margin: 10px; }
+            .owner-btn:hover { background: #1e7e34; }
+            .status { margin: 20px 0; padding: 15px; border-radius: 8px; font-weight: bold; }
+            .success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+            .error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
         </style>
     </head>
     <body>
-        <div class="form-container">
-            <h2>🔒 Secure PDF Access</h2>
-            <p>Please enter your email address to access the secure PDF:</p>
+        <div class="container">
+            <div class="logo">🔒</div>
+            <h1>Secure PDF Access</h1>
+            <p class="subtitle">Select your Google account to access the secure PDF</p>
+            
+            <div class="google-signin">
+                <div id="g_id_onload"
+                     data-client_id="796807919718-rogn5gjojli6i0pl2d5brv4uqqqereah.apps.googleusercontent.com"
+                     data-context="signin"
+                     data-ux_mode="popup"
+                     data-callback="handleCredentialResponse"
+                     data-auto_prompt="false">
+                </div>
+                <div class="g_id_signin"
+                     data-type="standard"
+                     data-shape="rectangular"
+                     data-theme="outline"
+                     data-text="signin_with"
+                     data-size="large"
+                     data-logo_alignment="left">
+                </div>
+            </div>
             
             <div class="security-info">
-                <strong>🔐 Security Features:</strong>
-                <ul style="margin: 10px 0; padding-left: 20px;">
-                    <li>PDF opens directly in Chrome browser</li>
-                    <li>No external editors allowed</li>
-                    <li>Only authorized recipients can edit</li>
-                    <li>Secure token-based access</li>
-                    <li>Text editing, adding, and removing capabilities</li>
+                <strong>🔐 How it works:</strong>
+                <ul style="margin: 15px 0; padding-left: 20px;">
+                    <li>Click "Sign in with Google" above</li>
+                    <li>Select your Google account</li>
+                    <li>If you're an authorized recipient, PDF opens automatically</li>
+                    <li>If not authorized, access is denied</li>
+                    <li>No email typing required - just account selection</li>
                 </ul>
             </div>
             
-            <div class="url-info">
-                <strong>🌐 Owner Actions:</strong>
-                <p><strong>Send secure links to recipients:</strong> <a href="/send" target="_blank">${DEPLOYED_URL}/send</a></p>
-                <p><strong>Direct email sending:</strong> ${DEPLOYED_URL}/send-email/EMAIL_ADDRESS</p>
-            </div>
-            
-            <form id="emailForm">
-                <input type="email" id="email" placeholder="Enter your email address" required>
-                <button type="submit">Request Access</button>
-            </form>
-            <div id="message"></div>
-            
             <div class="owner-actions">
-                <button onclick="window.open('/send', '_blank')">📧 Send Secure Links to Recipients</button>
+                <button class="owner-btn" onclick="window.open('/send', '_blank')">📧 Send Secure Links to Recipients</button>
+                <button class="owner-btn" onclick="window.open('/send', '_blank')">🌐 Manage Recipients</button>
             </div>
+            
+            <div id="status"></div>
         </div>
         
         <script>
-            document.getElementById('emailForm').addEventListener('submit', function(e) {
-                e.preventDefault();
-                const email = document.getElementById('email').value;
-                const messageDiv = document.getElementById('message');
+            function handleCredentialResponse(response) {
+                // Decode the JWT token from Google
+                const payload = JSON.parse(atob(response.credential.split('.')[1]));
+                const userEmail = payload.email;
                 
-                if (email === '${OWNER_EMAIL}') {
-                    messageDiv.innerHTML = '<p style="color: green;">Access granted! Redirecting...</p>';
-                    // Generate a new token and redirect
-                    fetch('/generate-link?email=' + encodeURIComponent(email))
+                console.log('User selected:', userEmail);
+                
+                // Check if user is authorized
+                checkAccess(userEmail);
+            }
+            
+            function checkAccess(email) {
+                const statusDiv = document.getElementById('status');
+                statusDiv.innerHTML = '<div class="status">Checking access...</div>';
+                
+                // Check if user is owner or authorized recipient
+                if (email === 'shreyagaikwad107@gmail.com') {
+                    // Owner access
+                    statusDiv.innerHTML = '<div class="status success">✅ Access granted! Redirecting...</div>';
+                    generateAndRedirect(email);
+                } else {
+                    // Check if user is authorized recipient
+                    fetch('/check-recipient?email=' + encodeURIComponent(email))
                         .then(response => response.json())
                         .then(data => {
-                            window.location.href = data.secureLink;
+                            if (data.authorized) {
+                                statusDiv.innerHTML = '<div class="status success">✅ Access granted! Redirecting...</div>';
+                                generateAndRedirect(email);
+                            } else {
+                                statusDiv.innerHTML = '<div class="status error">❌ Access denied. You are not authorized to view this PDF.</div>';
+                            }
+                        })
+                        .catch(error => {
+                            statusDiv.innerHTML = '<div class="status error">❌ Error checking access. Please try again.</div>';
                         });
-                } else {
-                    messageDiv.innerHTML = '<p style="color: red;">Access denied. Only the owner and specifically invited recipients can access this PDF.</p>';
                 }
-            });
+            }
+            
+            function generateAndRedirect(email) {
+                fetch('/generate-link?email=' + encodeURIComponent(email))
+                    .then(response => response.json())
+                    .then(data => {
+                        setTimeout(() => {
+                            window.location.href = data.secureLink;
+                        }, 1500);
+                    })
+                    .catch(error => {
+                        console.error('Error generating link:', error);
+                    });
+            }
         </script>
     </body>
     </html>
@@ -782,6 +857,7 @@ app.listen(PORT, "0.0.0.0", async () => {
   console.log(`• PDF access page: ${DEPLOYED_URL}/`);
   
   console.log(`\n🔒 Security Features:`);
+  console.log(`• Google OAuth account selection - no email typing required`);
   console.log(`• Only chosen recipients can edit PDFs`);
   console.log(`• PDFs open directly in Chrome browser`);
   console.log(`• No external editors allowed`);
