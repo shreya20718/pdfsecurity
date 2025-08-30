@@ -3,6 +3,7 @@ const jwt = require("jsonwebtoken");
 const fs = require("fs");
 const path = require("path");
 const nodemailer = require("nodemailer");
+const multer = require("multer");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -13,6 +14,23 @@ const OWNER_EMAIL = "shreyagaikwad107@gmail.com";
 
 // This will be your deployed URL - UPDATE THIS AFTER DEPLOYMENT
 const DEPLOYED_URL = "https://pdfsecurity.onrender.com"; // Change this to your actual deployed URL
+
+// Configure multer for file uploads
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, './uploads/')
+  },
+  filename: function (req, file, cb) {
+    cb(null, 'edited-resume-' + Date.now() + '.pdf')
+  }
+});
+
+const upload = multer({ storage: storage });
+
+// Create uploads directory if it doesn't exist
+if (!fs.existsSync('./uploads')) {
+  fs.mkdirSync('./uploads');
+}
 
 // Generate a secure download link for recipient
 app.get("/generate-link", (req, res) => {
@@ -51,14 +69,54 @@ app.get("/send-email/:email", async (req, res) => {
     let info = await transporter.sendMail({
       from: '"Shreya Gaikwad" <shreyagaikwad107@gmail.com>',
       to: email,
-      subject: "Your Secured PDF Link",
-      text: `Hello, here is your secure PDF link (valid for 12h): ${secureLink}`,
+      subject: "Your Secured PDF Link - View and Edit",
+      text: `Hello, here is your secure PDF link (valid for 12h): ${secureLink}\n\nYou can view and edit the PDF, then send it back to the owner.`,
     });
 
     console.log("Email sent to:", email, "Message ID:", info.messageId);
     res.send({ success: true, message: `Email sent to ${email}`, messageId: info.messageId });
   } catch (error) {
     console.error("Error sending email:", error);
+    res.status(500).send({ success: false, error: error.message });
+  }
+});
+
+// Route to send edited PDF back to owner
+app.post("/send-back", upload.single('pdf'), async (req, res) => {
+  const { token, recipientEmail } = req.body;
+  
+  try {
+    // Verify token
+    const decoded = jwt.verify(token, SECRET_KEY);
+    
+    if (!req.file) {
+      return res.status(400).send({ success: false, error: "No PDF file uploaded" });
+    }
+
+    // Send email to owner with the edited PDF
+    let transporter = nodemailer.createTransport({
+      service: "gmail",
+      auth: {
+        user: "shreyagaikwad107@gmail.com",
+        pass: "ukrb lzop ycqs epvi",
+      },
+    });
+
+    let info = await transporter.sendMail({
+      from: '"PDF Editor" <shreyagaikwad107@gmail.com>',
+      to: OWNER_EMAIL,
+      subject: `Edited PDF from ${recipientEmail}`,
+      text: `The PDF has been edited by ${recipientEmail} and sent back to you.`,
+      attachments: [{
+        filename: req.file.originalname || 'edited-resume.pdf',
+        path: req.file.path
+      }]
+    });
+
+    console.log("Edited PDF sent back to owner:", info.messageId);
+    res.send({ success: true, message: "Edited PDF sent back to owner successfully" });
+  } catch (error) {
+    console.error("Error sending back PDF:", error);
     res.status(500).send({ success: false, error: error.message });
   }
 });
@@ -84,7 +142,7 @@ app.get("/send", (req, res) => {
     <body>
         <div class="container">
             <h2>📧 Send Secure PDF Link</h2>
-            <p>Enter an email address to send the secure PDF link:</p>
+            <p>Enter an email address to send the secure PDF link (recipients can view and edit):</p>
             <form id="emailForm">
                 <input type="email" id="email" placeholder="Enter email address" required>
                 <button type="submit">Send Email</button>
@@ -143,7 +201,7 @@ app.get("/send", (req, res) => {
   `);
 });
 
-// View route (shows PDF without download option)
+// View route (shows PDF with editing capabilities)
 app.get("/view", (req, res) => {
   const { token } = req.query;
 
@@ -151,8 +209,8 @@ app.get("/view", (req, res) => {
     const decoded = jwt.verify(token, SECRET_KEY);
     const email = decoded.email;
 
-    // Check if user is authorized (owner has full access)
-    if (email !== OWNER_EMAIL) {
+    // Check if user is authorized (owner or recipient)
+    if (email !== OWNER_EMAIL && !email) {
       return res.status(403).send(`
         <!DOCTYPE html>
         <html>
@@ -165,7 +223,7 @@ app.get("/view", (req, res) => {
         </head>
         <body>
             <h1 class="error">Access Denied</h1>
-            <p>Only the owner (${OWNER_EMAIL}) has access to this PDF.</p>
+            <p>You are not authorized to access this PDF.</p>
         </body>
         </html>
       `);
@@ -177,18 +235,87 @@ app.get("/view", (req, res) => {
       return res.status(404).send("File not found.");
     }
 
-    // Set headers to prevent download and force inline viewing
-    res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", "inline; filename=resume.pdf");
-    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
-    res.setHeader("Pragma", "no-cache");
-    res.setHeader("Expires", "0");
-    
-    // Disable right-click and other download methods
-    res.setHeader("X-Frame-Options", "DENY");
-    res.setHeader("X-Content-Type-Options", "nosniff");
-    
-    fs.createReadStream(filePath).pipe(res);
+    // Send the PDF viewer page with editing capabilities
+    res.send(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+          <title>PDF Viewer & Editor</title>
+          <style>
+              body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }
+              .container { max-width: 1200px; margin: 0 auto; background: white; border-radius: 10px; padding: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+              .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 20px; border-bottom: 1px solid #eee; }
+              .pdf-container { width: 100%; height: 600px; border: 1px solid #ddd; border-radius: 5px; }
+              .actions { margin-top: 20px; text-align: center; }
+              button { background: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; margin: 5px; }
+              button:hover { background: #0056b3; }
+              .upload-section { margin-top: 20px; padding: 20px; background: #f8f9fa; border-radius: 5px; }
+              .status { margin-top: 10px; padding: 10px; border-radius: 5px; }
+              .success { background: #d4edda; color: #155724; }
+              .error { background: #f8d7da; color: #721c24; }
+          </style>
+      </head>
+      <body>
+          <div class="container">
+              <div class="header">
+                  <h1>📄 PDF Viewer & Editor</h1>
+                  <div>
+                      <span>Welcome, ${email}</span>
+                      ${email !== '${OWNER_EMAIL}' ? '<span style="color: #28a745;">(Recipient)</span>' : '<span style="color: #007bff;">(Owner)</span>'}
+                  </div>
+              </div>
+              
+              <div class="pdf-container">
+                  <iframe src="/pdf-content?token=${token}" width="100%" height="100%" frameborder="0"></iframe>
+              </div>
+              
+              ${email !== '${OWNER_EMAIL}' ? `
+              <div class="upload-section">
+                  <h3>📤 Send Edited PDF Back to Owner</h3>
+                  <p>After editing the PDF, upload it here to send it back to the owner.</p>
+                  <form id="uploadForm" enctype="multipart/form-data">
+                      <input type="file" name="pdf" accept=".pdf" required style="margin: 10px 0; padding: 10px; border: 1px solid #ddd; border-radius: 5px; width: 100%;">
+                      <br>
+                      <button type="submit">Send Back to Owner</button>
+                  </form>
+                  <div id="uploadStatus"></div>
+              </div>
+              ` : ''}
+          </div>
+          
+          <script>
+              ${email !== '${OWNER_EMAIL}' ? `
+              document.getElementById('uploadForm').addEventListener('submit', async function(e) {
+                  e.preventDefault();
+                  const formData = new FormData(this);
+                  formData.append('token', '${token}');
+                  formData.append('recipientEmail', '${email}');
+                  
+                  const statusDiv = document.getElementById('uploadStatus');
+                  statusDiv.innerHTML = '<div class="status">Sending edited PDF...</div>';
+                  
+                  try {
+                      const response = await fetch('/send-back', {
+                          method: 'POST',
+                          body: formData
+                      });
+                      const result = await response.json();
+                      
+                      if (result.success) {
+                          statusDiv.innerHTML = '<div class="status success">✅ Edited PDF sent back to owner successfully!</div>';
+                          this.reset();
+                      } else {
+                          statusDiv.innerHTML = '<div class="status error">❌ Error: ' + result.error + '</div>';
+                      }
+                  } catch (error) {
+                      statusDiv.innerHTML = '<div class="status error">❌ Network error: ' + error.message + '</div>';
+                  }
+              });
+              ` : ''}
+          </script>
+      </body>
+      </html>
+    `);
   } catch (err) {
     res.status(403).send(`
       <!DOCTYPE html>
@@ -209,6 +336,38 @@ app.get("/view", (req, res) => {
   }
 });
 
+// Route to serve PDF content
+app.get("/pdf-content", (req, res) => {
+  const { token } = req.query;
+
+  try {
+    const decoded = jwt.verify(token, SECRET_KEY);
+    const email = decoded.email;
+
+    // Check if user is authorized
+    if (email !== OWNER_EMAIL && !email) {
+      return res.status(403).send("Access denied");
+    }
+
+    const filePath = path.join(__dirname, "resume.pdf");
+
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).send("File not found.");
+    }
+
+    // Set headers to allow viewing but prevent download
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", "inline; filename=resume.pdf");
+    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
+    
+    fs.createReadStream(filePath).pipe(res);
+  } catch (err) {
+    res.status(403).send("Access denied");
+  }
+});
+
 // Route for direct access - shows email form for unauthorized users
 app.get("/", (req, res) => {
   const { token } = req.query;
@@ -217,8 +376,8 @@ app.get("/", (req, res) => {
     try {
       const decoded = jwt.verify(token, SECRET_KEY);
       
-      // If it's the owner, redirect to view
-      if (decoded.email === OWNER_EMAIL) {
+      // If it's the owner or a valid recipient, redirect to view
+      if (decoded.email === OWNER_EMAIL || decoded.email) {
         return res.redirect(`/view?token=${token}`);
       }
     } catch (err) {
@@ -257,7 +416,7 @@ app.get("/", (req, res) => {
                 const email = document.getElementById('email').value;
                 const messageDiv = document.getElementById('message');
                 
-                if (email === '${OWNER_EMAIL}') {
+                if (email === '${OWNER_EMAIL}' || email) {
                     messageDiv.innerHTML = '<p style="color: green;">Access granted! Redirecting...</p>';
                     // Generate a new token and redirect
                     fetch('/generate-link?email=' + encodeURIComponent(email))
@@ -266,7 +425,7 @@ app.get("/", (req, res) => {
                             window.location.href = data.secureLink;
                         });
                 } else {
-                    messageDiv.innerHTML = '<p style="color: red;">Access denied. Only the owner can access this PDF.</p>';
+                    messageDiv.innerHTML = '<p style="color: red;">Please enter a valid email address.</p>';
                 }
             });
         </script>
@@ -295,8 +454,8 @@ async function sendSecureLink() {
   let info = await transporter.sendMail({
     from: '"Shreya Gaikwad" <shreyagaikwad107@gmail.com>',
     to: OWNER_EMAIL,
-    subject: "Your Secured PDF Link",
-    text: `Hello, here is your secure PDF link (valid for 12h): ${secureLink}`,
+    subject: "Your Secured PDF Link - View and Edit",
+    text: `Hello, here is your secure PDF link (valid for 12h): ${secureLink}\n\nYou can view and edit the PDF, then send it back to the owner.`,
   });
 
   console.log("Email sent:", info.messageId);
@@ -313,10 +472,11 @@ app.listen(PORT, "0.0.0.0", async () => {
   console.log(`• Web interface for sending emails: ${DEPLOYED_URL}/send`);
   console.log(`• PDF access page: ${DEPLOYED_URL}/`);
   
-  console.log(`\n💡 After deployment:`);
-  console.log(`1. Update DEPLOYED_URL in the code with your actual URL`);
-  console.log(`2. Redeploy the application`);
-  console.log(`3. Your links will work globally!`);
+  console.log(`\n🔒 Security Features:`);
+  console.log(`• Owner and recipients can view and edit PDFs`);
+  console.log(`• Recipients can send edited PDFs back to owner`);
+  console.log(`• Links expire after 12 hours`);
+  console.log(`• Works globally from any device`);
 
   // Send the secure link automatically when server starts
   await sendSecureLink();
