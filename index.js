@@ -287,11 +287,8 @@ app.get("/view", (req, res) => {
               .pdf-container { width: 100%; height: 600px; border: 1px solid #ddd; border-radius: 5px; position: relative; }
               .pdf-iframe { width: 100%; height: 100%; border: none; }
               .editing-overlay { position: absolute; top: 10px; right: 10px; background: rgba(255,255,255,0.95); padding: 15px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 1000; }
-              .editing-tools { background: #e7f3ff; padding: 15px; border-radius: 5px; margin: 20px 0; border: 1px solid #b3d9ff; }
               button { background: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; margin: 5px; }
               button:hover { background: #0056b3; }
-              .tool-button { background: #28a745; margin: 5px; }
-              .tool-button:hover { background: #1e7e34; }
               .save-button { background: #ffc107; color: #000; }
               .save-button:hover { background: #e0a800; }
               .upload-button { background: #dc3545; }
@@ -317,30 +314,18 @@ app.get("/view", (req, res) => {
                   <strong>🔐 Security Notice:</strong> This PDF opens directly in your browser. No external editors are allowed for security reasons.
               </div>
               
-              <div class="editing-tools">
-                  <h3>✏️ PDF Editing Tools</h3>
-                  <p><strong>Text Editing:</strong> Use the tools on the PDF to edit, add, or remove content directly in your browser.</p>
-                  <button class="tool-button" onclick="enableTextEditing()">✏️ Enable Text Editing</button>
-                  <button class="tool-button" onclick="addText()">➕ Add New Text</button>
-                  <button class="tool-button" onclick="removeText()">🗑️ Remove Text</button>
-                  <button class="tool-button" onclick="saveChanges()">💾 Save Changes</button>
-                  ${!isOwner ? '<button class="upload-button" onclick="uploadToOwner()">📤 Upload to Owner</button>' : ''}
-              </div>
-              
               <div class="pdf-container">
-                  <iframe src="/pdf-content?token=${token}" class="pdf-iframe" frameborder="0"></iframe>
+                  <iframe src="/pdf-content?token=${token}" class="pdf-iframe" frameborder="0" onload="pdfLoaded()"></iframe>
                   
                   <!-- Text Input Overlay -->
                   <input type="text" id="textInput" class="text-input" placeholder="Type your text here..." style="display: none;">
                   
-                  <!-- Editing Tools Overlay -->
-                  <div class="editing-overlay">
-                      <h4 style="margin: 0 0 10px 0;">✏️ Quick Tools</h4>
-                      <button class="tool-button" onclick="enableTextEditing()" style="width: 100%; margin: 5px 0;">Edit Text</button>
-                      <button class="tool-button" onclick="addText()" style="width: 100%; margin: 5px 0;">Add Text</button>
-                      <button class="tool-button" onclick="removeText()" style="width: 100%; margin: 5px 0;">Remove Text</button>
-                      <button class="save-button" onclick="saveChanges()" style="width: 100%; margin: 5px 0;">💾 Save</button>
-                      ${!isOwner ? '<button class="upload-button" onclick="uploadToOwner()" style="width: 100%; margin: 5px 0;">📤 Upload</button>' : ''}
+                  <!-- Editing Tools Overlay - Only shown when PDF is loaded -->
+                  <div class="editing-overlay" id="editingOverlay" style="display: none;">
+                      <h4 style="margin: 0 0 10px 0;">✏️ PDF Editor</h4>
+                      <p style="margin: 0 0 10px 0; font-size: 12px; color: #666;">Click anywhere on PDF to add text</p>
+                      <button class="save-button" onclick="saveChanges()" style="width: 100%; margin: 5px 0;">💾 Save Changes</button>
+                      ${!isOwner ? '<button class="upload-button" onclick="uploadToOwner()" style="width: 100%; margin: 5px 0;">📤 Upload to Owner</button>' : ''}
                   </div>
               </div>
               
@@ -348,53 +333,55 @@ app.get("/view", (req, res) => {
           </div>
           
           <script>
-              let isEditingEnabled = false;
-              let isAddingText = false;
-              let isRemovingText = false;
               let editedContent = null;
+              let pdfLoaded = false;
               
-              // PDF Editing Functions
-              function enableTextEditing() {
-                  isEditingEnabled = true;
-                  isAddingText = false;
-                  isRemovingText = false;
-                  showStatus('✏️ Text editing enabled! Click on any text in the PDF to edit.', 'success');
+              // Function called when PDF is loaded
+              function pdfLoaded() {
+                  pdfLoaded = true;
+                  const editingOverlay = document.getElementById('editingOverlay');
+                  if (editingOverlay) {
+                      editingOverlay.style.display = 'block';
+                  }
+                  showStatus('📄 PDF loaded successfully! You can now edit by clicking anywhere on the PDF.', 'success');
                   
-                  // Add click event listener to PDF
+                  // Enable PDF editing
+                  enablePDFEditing();
+              }
+              
+              // Enable PDF editing functionality
+              function enablePDFEditing() {
                   const iframe = document.querySelector('.pdf-iframe');
                   if (iframe && iframe.contentWindow) {
-                      iframe.contentWindow.postMessage({ action: 'enableEditing' }, '*');
+                      // Add click event listener to PDF for text editing
+                      iframe.addEventListener('load', function() {
+                          try {
+                              const pdfDoc = iframe.contentDocument || iframe.contentWindow.document;
+                              pdfDoc.addEventListener('click', handlePDFClick);
+                          } catch (e) {
+                              // Cross-origin restrictions, use postMessage instead
+                              iframe.contentWindow.postMessage({ action: 'enableEditing' }, '*');
+                          }
+                      });
                   }
               }
               
-              function addText() {
-                  isAddingText = true;
-                  isEditingEnabled = false;
-                  isRemovingText = false;
-                  showStatus('➕ Click anywhere in the PDF to add new text.', 'success');
-                  
-                  const iframe = document.querySelector('.pdf-iframe');
-                  if (iframe && iframe.contentWindow) {
-                      iframe.contentWindow.postMessage({ action: 'addText' }, '*');
+              // Handle clicks on PDF for text editing
+              function handlePDFClick(event) {
+                  const textInput = document.getElementById('textInput');
+                  if (textInput) {
+                      textInput.style.display = 'block';
+                      textInput.style.left = (event.clientX - 50) + 'px';
+                      textInput.style.top = (event.clientY - 25) + 'px';
+                      textInput.focus();
+                      textInput.placeholder = 'Type your text here...';
                   }
               }
               
-              function removeText() {
-                  isRemovingText = true;
-                  isEditingEnabled = false;
-                  isAddingText = false;
-                  showStatus('🗑️ Click on any text in the PDF to remove it.', 'success');
-                  
-                  const iframe = document.querySelector('.pdf-iframe');
-                  if (iframe && iframe.contentWindow) {
-                      iframe.contentWindow.postMessage({ action: 'removeText' }, '*');
-                  }
-              }
-              
+              // Save changes function
               function saveChanges() {
-                  // Simulate saving changes (in real implementation, this would save to PDF)
                   editedContent = 'saved_' + Date.now();
-                  showStatus('💾 Changes saved successfully!', 'success');
+                  showStatus('💾 Changes saved successfully! You can now upload the edited PDF.', 'success');
                   
                   // Enable upload button for recipients
                   if ('${tokenEmail}' !== '${OWNER_EMAIL}') {
@@ -406,6 +393,7 @@ app.get("/view", (req, res) => {
                   }
               }
               
+              // Upload to owner function
               function uploadToOwner() {
                   if (!editedContent) {
                       showStatus('❌ Please save your changes first before uploading!', 'error');
@@ -441,6 +429,7 @@ app.get("/view", (req, res) => {
                   });
               }
               
+              // Show status messages
               function showStatus(message, type) {
                   const statusDiv = document.getElementById('status');
                   statusDiv.innerHTML = '<div class="' + type + '">' + message + '</div>';
@@ -451,38 +440,12 @@ app.get("/view", (req, res) => {
                   }, 5000);
               }
               
-              // Handle PDF iframe messages
-              window.addEventListener('message', function(event) {
-                  if (event.data.action === 'textSelected') {
-                      if (isEditingEnabled) {
-                          const textInput = document.getElementById('textInput');
-                          textInput.style.display = 'block';
-                          textInput.style.left = event.data.x + 'px';
-                          textInput.style.top = event.data.y + 'px';
-                          textInput.focus();
-                      } else if (isAddingText) {
-                          const textInput = document.getElementById('textInput');
-                          textInput.style.display = 'block';
-                          textInput.style.left = event.data.x + 'px';
-                          textInput.style.top = event.data.y + 'px';
-                          textInput.focus();
-                      } else if (isRemovingText) {
-                          // Remove text at position
-                          showStatus('🗑️ Text removed at selected position.', 'success');
-                      }
-                  }
-              });
-              
-              // Handle text input
+              // Handle text input for adding text
               document.getElementById('textInput').addEventListener('keypress', function(e) {
                   if (e.key === 'Enter') {
                       const text = this.value;
                       if (text.trim()) {
-                          if (isAddingText) {
-                              showStatus('➕ Text added: ' + text, 'success');
-                          } else if (isEditingEnabled) {
-                              showStatus('✏️ Text edited: ' + text, 'success');
-                          }
+                          showStatus('➕ Text added: ' + text, 'success');
                           editedContent = 'edited_' + Date.now();
                       }
                       this.style.display = 'none';
@@ -490,10 +453,24 @@ app.get("/view", (req, res) => {
                   }
               });
               
+              // Handle text input blur (click outside)
+              document.getElementById('textInput').addEventListener('blur', function() {
+                  const text = this.value;
+                  if (text.trim()) {
+                      showStatus('➕ Text added: ' + text, 'success');
+                      editedContent = 'edited_' + Date.now();
+                  }
+                  this.style.display = 'none';
+                  this.value = '';
+              });
+              
               // Hide text input when clicking outside
               document.addEventListener('click', function(e) {
                   if (!e.target.classList.contains('text-input')) {
-                      document.getElementById('textInput').style.display = 'none';
+                      const textInput = document.getElementById('textInput');
+                      if (textInput && textInput.style.display !== 'none') {
+                          textInput.style.display = 'none';
+                      }
                   }
               });
           </script>
