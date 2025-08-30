@@ -15,6 +15,9 @@ const OWNER_EMAIL = "shreyagaikwad107@gmail.com";
 // This will be your deployed URL - UPDATE THIS AFTER DEPLOYMENT
 const DEPLOYED_URL = "https://pdfsecurity.onrender.com"; // Change this to your actual deployed URL
 
+// Store authorized recipients (in production, use a database)
+const AUTHORIZED_RECIPIENTS = new Set();
+
 // Configure multer for file uploads
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
@@ -51,6 +54,9 @@ app.get("/send-email/:email", async (req, res) => {
   const email = req.params.email;
   
   try {
+    // Add recipient to authorized list
+    AUTHORIZED_RECIPIENTS.add(email);
+    
     // Create token for the specified email
     const token = jwt.sign({ email: email }, SECRET_KEY, {
       expiresIn: "12h",
@@ -74,6 +80,7 @@ app.get("/send-email/:email", async (req, res) => {
     });
 
     console.log("Email sent to:", email, "Message ID:", info.messageId);
+    console.log("Authorized recipients:", Array.from(AUTHORIZED_RECIPIENTS));
     res.send({ success: true, message: `Email sent to ${email}`, messageId: info.messageId });
   } catch (error) {
     console.error("Error sending email:", error);
@@ -88,6 +95,11 @@ app.post("/send-back", upload.single('pdf'), async (req, res) => {
   try {
     // Verify token
     const decoded = jwt.verify(token, SECRET_KEY);
+    
+    // Check if the recipient is authorized
+    if (decoded.email !== OWNER_EMAIL && !AUTHORIZED_RECIPIENTS.has(decoded.email)) {
+      return res.status(403).send({ success: false, error: "Unauthorized recipient" });
+    }
     
     if (!req.file) {
       return res.status(400).send({ success: false, error: "No PDF file uploaded" });
@@ -209,8 +221,8 @@ app.get("/view", (req, res) => {
     const decoded = jwt.verify(token, SECRET_KEY);
     const email = decoded.email;
 
-    // Check if user is authorized (owner or recipient)
-    if (email !== OWNER_EMAIL && !email) {
+    // Check if user is authorized (owner or specifically authorized recipient)
+    if (email !== OWNER_EMAIL && !AUTHORIZED_RECIPIENTS.has(email)) {
       return res.status(403).send(`
         <!DOCTYPE html>
         <html>
@@ -223,7 +235,7 @@ app.get("/view", (req, res) => {
         </head>
         <body>
             <h1 class="error">Access Denied</h1>
-            <p>You are not authorized to access this PDF.</p>
+            <p>You are not authorized to access this PDF. Only the owner and specifically invited recipients can view this document.</p>
         </body>
         </html>
       `);
@@ -344,8 +356,8 @@ app.get("/pdf-content", (req, res) => {
     const decoded = jwt.verify(token, SECRET_KEY);
     const email = decoded.email;
 
-    // Check if user is authorized
-    if (email !== OWNER_EMAIL && !email) {
+    // Check if user is authorized (owner or specifically authorized recipient)
+    if (email !== OWNER_EMAIL && !AUTHORIZED_RECIPIENTS.has(email)) {
       return res.status(403).send("Access denied");
     }
 
@@ -376,8 +388,8 @@ app.get("/", (req, res) => {
     try {
       const decoded = jwt.verify(token, SECRET_KEY);
       
-      // If it's the owner or a valid recipient, redirect to view
-      if (decoded.email === OWNER_EMAIL || decoded.email) {
+      // If it's the owner or a specifically authorized recipient, redirect to view
+      if (decoded.email === OWNER_EMAIL || AUTHORIZED_RECIPIENTS.has(decoded.email)) {
         return res.redirect(`/view?token=${token}`);
       }
     } catch (err) {
@@ -416,7 +428,7 @@ app.get("/", (req, res) => {
                 const email = document.getElementById('email').value;
                 const messageDiv = document.getElementById('message');
                 
-                if (email === '${OWNER_EMAIL}' || email) {
+                if (email === '${OWNER_EMAIL}') {
                     messageDiv.innerHTML = '<p style="color: green;">Access granted! Redirecting...</p>';
                     // Generate a new token and redirect
                     fetch('/generate-link?email=' + encodeURIComponent(email))
@@ -425,7 +437,7 @@ app.get("/", (req, res) => {
                             window.location.href = data.secureLink;
                         });
                 } else {
-                    messageDiv.innerHTML = '<p style="color: red;">Please enter a valid email address.</p>';
+                    messageDiv.innerHTML = '<p style="color: red;">Access denied. Only the owner and specifically invited recipients can access this PDF.</p>';
                 }
             });
         </script>
