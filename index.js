@@ -15,8 +15,8 @@ const OWNER_EMAIL = "shreyagaikwad107@gmail.com";
 // This will be your deployed URL - UPDATE THIS AFTER DEPLOYMENT
 const DEPLOYED_URL = "https://pdfsecurity.onrender.com"; // Change this to your actual deployed URL
 
-// Store authorized recipients (in production, use a database)
-const AUTHORIZED_RECIPIENTS = new Set();
+// Store authorized recipients with their specific tokens (in production, use a database)
+const AUTHORIZED_RECIPIENTS = new Map(); // email -> token mapping
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
@@ -54,13 +54,13 @@ app.get("/send-email/:email", async (req, res) => {
   const email = req.params.email;
   
   try {
-    // Add recipient to authorized list
-    AUTHORIZED_RECIPIENTS.add(email);
-    
     // Create token for the specified email
     const token = jwt.sign({ email: email }, SECRET_KEY, {
       expiresIn: "12h",
     });
+
+    // Store the token for this specific recipient
+    AUTHORIZED_RECIPIENTS.set(email, token);
 
     const secureLink = `${DEPLOYED_URL}/view?token=${token}`;
 
@@ -80,7 +80,7 @@ app.get("/send-email/:email", async (req, res) => {
     });
 
     console.log("Email sent to:", email, "Message ID:", info.messageId);
-    console.log("Authorized recipients:", Array.from(AUTHORIZED_RECIPIENTS));
+    console.log("Authorized recipients:", Array.from(AUTHORIZED_RECIPIENTS.keys()));
     res.send({ success: true, message: `Email sent to ${email}`, messageId: info.messageId });
   } catch (error) {
     console.error("Error sending email:", error);
@@ -96,8 +96,8 @@ app.post("/send-back", upload.single('pdf'), async (req, res) => {
     // Verify token
     const decoded = jwt.verify(token, SECRET_KEY);
     
-    // Check if the recipient is authorized
-    if (decoded.email !== OWNER_EMAIL && !AUTHORIZED_RECIPIENTS.has(decoded.email)) {
+    // Check if the recipient is authorized with matching token
+    if (decoded.email !== OWNER_EMAIL && (!AUTHORIZED_RECIPIENTS.has(decoded.email) || AUTHORIZED_RECIPIENTS.get(decoded.email) !== token)) {
       return res.status(403).send({ success: false, error: "Unauthorized recipient" });
     }
     
@@ -221,8 +221,8 @@ app.get("/view", (req, res) => {
     const decoded = jwt.verify(token, SECRET_KEY);
     const email = decoded.email;
 
-    // Check if user is authorized (owner or specifically authorized recipient)
-    if (email !== OWNER_EMAIL && !AUTHORIZED_RECIPIENTS.has(email)) {
+    // Check if user is authorized (owner or specifically authorized recipient with matching token)
+    if (email !== OWNER_EMAIL && (!AUTHORIZED_RECIPIENTS.has(email) || AUTHORIZED_RECIPIENTS.get(email) !== token)) {
       return res.status(403).send(`
         <!DOCTYPE html>
         <html>
@@ -235,7 +235,7 @@ app.get("/view", (req, res) => {
         </head>
         <body>
             <h1 class="error">Access Denied</h1>
-            <p>You are not authorized to access this PDF. Only the owner and specifically invited recipients can view this document.</p>
+            <p>You are not authorized to access this PDF. Only the original recipient can use this link.</p>
         </body>
         </html>
       `);
@@ -356,8 +356,8 @@ app.get("/pdf-content", (req, res) => {
     const decoded = jwt.verify(token, SECRET_KEY);
     const email = decoded.email;
 
-    // Check if user is authorized (owner or specifically authorized recipient)
-    if (email !== OWNER_EMAIL && !AUTHORIZED_RECIPIENTS.has(email)) {
+    // Check if user is authorized (owner or specifically authorized recipient with matching token)
+    if (email !== OWNER_EMAIL && (!AUTHORIZED_RECIPIENTS.has(email) || AUTHORIZED_RECIPIENTS.get(email) !== token)) {
       return res.status(403).send("Access denied");
     }
 
@@ -388,8 +388,8 @@ app.get("/", (req, res) => {
     try {
       const decoded = jwt.verify(token, SECRET_KEY);
       
-      // If it's the owner or a specifically authorized recipient, redirect to view
-      if (decoded.email === OWNER_EMAIL || AUTHORIZED_RECIPIENTS.has(decoded.email)) {
+      // If it's the owner or a specifically authorized recipient with matching token, redirect to view
+      if (decoded.email === OWNER_EMAIL || (AUTHORIZED_RECIPIENTS.has(decoded.email) && AUTHORIZED_RECIPIENTS.get(decoded.email) === token)) {
         return res.redirect(`/view?token=${token}`);
       }
     } catch (err) {
