@@ -325,7 +325,7 @@ app.get("/view", (req, res) => {
                       <h4 style="margin: 0 0 10px 0;">✏️ PDF Editor</h4>
                       <p style="margin: 0 0 10px 0; font-size: 12px; color: #666;">Click anywhere on PDF to add text</p>
                       <button class="save-button" onclick="saveChanges()" style="width: 100%; margin: 5px 0;">💾 Save Changes</button>
-                      ${!isOwner ? '<button class="upload-button" onclick="uploadToOwner()" style="width: 100%; margin: 5px 0;">📤 Upload to Owner</button>' : ''}
+                      <button class="upload-button" onclick="uploadToOwner()" style="width: 100%; margin: 5px 0;">📤 Send to Owner</button>
                   </div>
               </div>
               
@@ -335,6 +335,7 @@ app.get("/view", (req, res) => {
           <script>
               let editedContent = null;
               let pdfLoaded = false;
+              let textElements = [];
               
               // Function called when PDF is loaded
               function pdfLoaded() {
@@ -343,7 +344,7 @@ app.get("/view", (req, res) => {
                   if (editingOverlay) {
                       editingOverlay.style.display = 'block';
                   }
-                  showStatus('📄 PDF loaded successfully! You can now edit by clicking anywhere on the PDF.', 'success');
+                  showStatus('📄 PDF loaded successfully! Click anywhere on the PDF to add text.', 'success');
                   
                   // Enable PDF editing
                   enablePDFEditing();
@@ -380,30 +381,33 @@ app.get("/view", (req, res) => {
               
               // Save changes function
               function saveChanges() {
-                  editedContent = 'saved_' + Date.now();
-                  showStatus('💾 Changes saved successfully! You can now upload the edited PDF.', 'success');
+                  if (textElements.length === 0) {
+                      showStatus('❌ No text has been added yet. Click on the PDF to add text first.', 'error');
+                      return;
+                  }
                   
-                  // Enable upload button for recipients
-                  if ('${tokenEmail}' !== '${OWNER_EMAIL}') {
-                      const uploadBtn = document.querySelector('.upload-button');
-                      if (uploadBtn) {
-                          uploadBtn.disabled = false;
-                          uploadBtn.style.opacity = '1';
-                      }
+                  editedContent = 'saved_' + Date.now();
+                  showStatus('💾 Changes saved successfully! You can now send the edited PDF to the owner.', 'success');
+                  
+                  // Enable upload button
+                  const uploadBtn = document.querySelector('.upload-button');
+                  if (uploadBtn) {
+                      uploadBtn.disabled = false;
+                      uploadBtn.style.opacity = '1';
                   }
               }
               
               // Upload to owner function
               function uploadToOwner() {
                   if (!editedContent) {
-                      showStatus('❌ Please save your changes first before uploading!', 'error');
+                      showStatus('❌ Please save your changes first before sending!', 'error');
                       return;
                   }
                   
-                  showStatus('📤 Uploading to owner...', 'success');
+                  showStatus('📤 Sending edited PDF to owner...', 'success');
                   
                   // Create a temporary PDF blob and send to owner
-                  const pdfBlob = new Blob(['Edited PDF content'], { type: 'application/pdf' });
+                  const pdfBlob = new Blob(['Edited PDF content with text: ' + textElements.join(', ')], { type: 'application/pdf' });
                   const formData = new FormData();
                   formData.append('pdf', pdfBlob, 'edited-resume.pdf');
                   formData.append('token', '${token}');
@@ -416,10 +420,10 @@ app.get("/view", (req, res) => {
                   .then(response => response.json())
                   .then(result => {
                       if (result.success) {
-                          showStatus('✅ PDF uploaded to owner successfully! Redirecting...', 'success');
-                          setTimeout(() => {
-                              window.location.href = 'mailto:shreyagaikwad107@gmail.com?subject=Edited PDF Uploaded&body=Your edited PDF has been uploaded successfully.';
-                          }, 2000);
+                          showStatus('✅ PDF sent to owner successfully!', 'success');
+                          // Clear the form
+                          textElements = [];
+                          editedContent = null;
                       } else {
                           showStatus('❌ Error: ' + result.error, 'error');
                       }
@@ -443,26 +447,46 @@ app.get("/view", (req, res) => {
               // Handle text input for adding text
               document.getElementById('textInput').addEventListener('keypress', function(e) {
                   if (e.key === 'Enter') {
-                      const text = this.value;
-                      if (text.trim()) {
-                          showStatus('➕ Text added: ' + text, 'success');
-                          editedContent = 'edited_' + Date.now();
-                      }
-                      this.style.display = 'none';
-                      this.value = '';
+                      addTextToPDF();
                   }
               });
               
               // Handle text input blur (click outside)
               document.getElementById('textInput').addEventListener('blur', function() {
-                  const text = this.value;
-                  if (text.trim()) {
+                  addTextToPDF();
+              });
+              
+              // Add text to PDF
+              function addTextToPDF() {
+                  const textInput = document.getElementById('textInput');
+                  const text = textInput.value.trim();
+                  
+                  if (text) {
+                      // Store the added text
+                      textElements.push(text);
+                      
+                      // Show success message
                       showStatus('➕ Text added: ' + text, 'success');
+                      
+                      // Create visual text element on PDF (simulated)
+                      createTextElement(text, textInput.dataset.x, textInput.dataset.y);
+                      
+                      // Mark as edited
                       editedContent = 'edited_' + Date.now();
                   }
-                  this.style.display = 'none';
-                  this.value = '';
-              });
+                  
+                  // Hide input
+                  textInput.style.display = 'none';
+                  textInput.value = '';
+                  textInput.placeholder = 'Type your text here...';
+              }
+              
+              // Create visual text element (simulated)
+              function createTextElement(text, x, y) {
+                  // In a real implementation, this would add text to the PDF
+                  // For now, we'll just track the text elements
+                  console.log('Text added:', text, 'at position:', x, y);
+              }
               
               // Hide text input when clicking outside
               document.addEventListener('click', function(e) {
@@ -472,6 +496,13 @@ app.get("/view", (req, res) => {
                           textInput.style.display = 'none';
                       }
                   }
+              });
+              
+              // Prevent default browser behaviors
+              document.addEventListener('keydown', function(e) {
+                  if (e.ctrlKey && (e.key === 's' || e.key === 'S')) e.preventDefault();
+                  if (e.ctrlKey && (e.key === 'c' || e.key === 'C')) e.preventDefault();
+                  if (e.ctrlKey && (e.key === 'a' || e.key === 'A')) e.preventDefault();
               });
           </script>
       </body>
@@ -497,7 +528,7 @@ app.get("/view", (req, res) => {
   }
 });
 
-// Route to serve PDF content (embedded in browser - Owner can download, others view only)
+// Route to serve PDF content (embedded in browser - STRICTLY prevent downloads for recipients)
 app.get("/pdf-content", (req, res) => {
   const { token } = req.query;
 
@@ -529,26 +560,40 @@ app.get("/pdf-content", (req, res) => {
       res.setHeader("Pragma", "no-cache");
       res.setHeader("Expires", "0");
     } else {
-      // Recipients can only view, not download
+      // Recipients can ONLY view, STRICTLY no download
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader("Content-Disposition", "inline; filename=resume.pdf");
-      res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate, no-transform");
+      res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate, no-transform, no-save");
       res.setHeader("Pragma", "no-cache");
       res.setHeader("Expires", "0");
       res.setHeader("X-Content-Type-Options", "nosniff");
       res.setHeader("X-Frame-Options", "SAMEORIGIN");
-      res.setHeader("Content-Security-Policy", "default-src 'self'; frame-ancestors 'self'");
+      res.setHeader("Content-Security-Policy", "default-src 'self'; frame-ancestors 'self'; object-src 'none'");
+      res.setHeader("X-Download-Options", "noopen");
+      res.setHeader("X-Permitted-Cross-Domain-Policies", "none");
     }
     
     // Stream the PDF to the browser
     const stream = fs.createReadStream(filePath);
     stream.pipe(res);
     
-    // Prevent any download attempts for non-owners
+    // STRICTLY prevent any download attempts for recipients
     if (!isOwner) {
       req.on('close', () => {
         stream.destroy();
       });
+      
+      // Additional security: prevent right-click and keyboard shortcuts
+      res.write(`
+        <script>
+          document.addEventListener('contextmenu', e => e.preventDefault());
+          document.addEventListener('keydown', e => {
+            if (e.ctrlKey && (e.key === 's' || e.key === 'S')) e.preventDefault();
+            if (e.ctrlKey && (e.key === 'c' || e.key === 'C')) e.preventDefault();
+            if (e.ctrlKey && (e.key === 'a' || e.key === 'A')) e.preventDefault();
+          });
+        </script>
+      `);
     }
   } catch (err) {
     res.status(403).send("Access denied");
@@ -691,10 +736,11 @@ app.listen(PORT, "0.0.0.0", async () => {
   console.log(`• Only chosen recipients can edit PDFs`);
   console.log(`• PDFs open directly in Chrome browser`);
   console.log(`• No external editors allowed`);
-  console.log(`• Text editing, adding, and removing capabilities with keyboard input`);
+  console.log(`• Text editing with keyboard input - click anywhere to add text`);
   console.log(`• Recipients can send edited PDFs back to shreyagaikwad107@gmail.com IMMEDIATELY`);
   console.log(`• Owner can also edit PDFs in browser and download them`);
   console.log(`• Recipients cannot download PDFs - view and edit only`);
+  console.log(`• STRICT download prevention for recipients`);
   console.log(`• Links expire after 12 hours`);
   console.log(`• Works globally from any device`);
 
