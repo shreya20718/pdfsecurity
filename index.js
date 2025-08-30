@@ -320,8 +320,8 @@ app.get("/view", (req, res) => {
                   <!-- Text Input Overlay -->
                   <input type="text" id="textInput" class="text-input" placeholder="Type your text here..." style="display: none;">
                   
-                  <!-- Editing Tools Overlay - Only shown when PDF is loaded -->
-                  <div class="editing-overlay" id="editingOverlay" style="display: none;">
+                  <!-- Editing Tools Overlay - Always visible when PDF is loaded -->
+                  <div class="editing-overlay" id="editingOverlay">
                       <h4 style="margin: 0 0 10px 0;">✏️ PDF Editor</h4>
                       <p style="margin: 0 0 10px 0; font-size: 12px; color: #666;">Click anywhere on PDF to add text</p>
                       <button class="save-button" onclick="saveChanges()" style="width: 100%; margin: 5px 0;">💾 Save Changes</button>
@@ -334,48 +334,82 @@ app.get("/view", (req, res) => {
           
           <script>
               let editedContent = null;
-              let pdfLoaded = false;
               let textElements = [];
               
               // Function called when PDF is loaded
               function pdfLoaded() {
-                  pdfLoaded = true;
-                  const editingOverlay = document.getElementById('editingOverlay');
-                  if (editingOverlay) {
-                      editingOverlay.style.display = 'block';
-                  }
                   showStatus('📄 PDF loaded successfully! Click anywhere on the PDF to add text.', 'success');
                   
-                  // Enable PDF editing
+                  // Enable PDF editing immediately
                   enablePDFEditing();
               }
               
               // Enable PDF editing functionality
               function enablePDFEditing() {
                   const iframe = document.querySelector('.pdf-iframe');
-                  if (iframe && iframe.contentWindow) {
-                      // Add click event listener to PDF for text editing
+                  if (iframe) {
+                      // Add click event listener to the iframe itself
+                      iframe.addEventListener('click', handlePDFClick);
+                      
+                      // Also try to add to PDF content if accessible
                       iframe.addEventListener('load', function() {
                           try {
                               const pdfDoc = iframe.contentDocument || iframe.contentWindow.document;
-                              pdfDoc.addEventListener('click', handlePDFClick);
+                              if (pdfDoc) {
+                                  pdfDoc.addEventListener('click', handlePDFClick);
+                                  pdfDoc.addEventListener('contextmenu', e => e.preventDefault());
+                                  pdfDoc.addEventListener('keydown', preventDownloadShortcuts);
+                              }
                           } catch (e) {
-                              // Cross-origin restrictions, use postMessage instead
-                              iframe.contentWindow.postMessage({ action: 'enableEditing' }, '*');
+                              console.log('Cross-origin PDF, using iframe click events');
                           }
                       });
+                  }
+                  
+                  // Add global click prevention for downloads
+                  document.addEventListener('contextmenu', e => e.preventDefault());
+                  document.addEventListener('keydown', preventDownloadShortcuts);
+              }
+              
+              // Prevent download shortcuts
+              function preventDownloadShortcuts(e) {
+                  if (e.ctrlKey && (e.key === 's' || e.key === 'S')) {
+                      e.preventDefault();
+                      showStatus('❌ Download not allowed!', 'error');
+                      return false;
+                  }
+                  if (e.ctrlKey && (e.key === 'c' || e.key === 'C')) {
+                      e.preventDefault();
+                      return false;
+                  }
+                  if (e.ctrlKey && (e.key === 'a' || e.key === 'A')) {
+                      e.preventDefault();
+                      return false;
                   }
               }
               
               // Handle clicks on PDF for text editing
               function handlePDFClick(event) {
+                  event.preventDefault();
+                  
                   const textInput = document.getElementById('textInput');
                   if (textInput) {
+                      // Position text input at click location
+                      const rect = event.currentTarget.getBoundingClientRect();
+                      const x = event.clientX - rect.left;
+                      const y = event.clientY - rect.top;
+                      
                       textInput.style.display = 'block';
                       textInput.style.left = (event.clientX - 50) + 'px';
                       textInput.style.top = (event.clientY - 25) + 'px';
                       textInput.focus();
                       textInput.placeholder = 'Type your text here...';
+                      
+                      // Store click position for text placement
+                      textInput.dataset.x = x;
+                      textInput.dataset.y = y;
+                      
+                      console.log('PDF clicked at:', x, y);
                   }
               }
               
@@ -395,6 +429,8 @@ app.get("/view", (req, res) => {
                       uploadBtn.disabled = false;
                       uploadBtn.style.opacity = '1';
                   }
+                  
+                  console.log('Changes saved. Text elements:', textElements);
               }
               
               // Upload to owner function
@@ -442,6 +478,8 @@ app.get("/view", (req, res) => {
                   setTimeout(() => {
                       statusDiv.style.display = 'none';
                   }, 5000);
+                  
+                  console.log('Status:', message);
               }
               
               // Handle text input for adding text
@@ -498,11 +536,10 @@ app.get("/view", (req, res) => {
                   }
               });
               
-              // Prevent default browser behaviors
-              document.addEventListener('keydown', function(e) {
-                  if (e.ctrlKey && (e.key === 's' || e.key === 'S')) e.preventDefault();
-                  if (e.ctrlKey && (e.key === 'c' || e.key === 'C')) e.preventDefault();
-                  if (e.ctrlKey && (e.key === 'a' || e.key === 'A')) e.preventDefault();
+              // Initialize when page loads
+              document.addEventListener('DOMContentLoaded', function() {
+                  console.log('PDF Editor initialized');
+                  showStatus('🎯 PDF Editor ready! Click anywhere on the PDF to add text.', 'success');
               });
           </script>
       </body>
@@ -563,14 +600,15 @@ app.get("/pdf-content", (req, res) => {
       // Recipients can ONLY view, STRICTLY no download
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader("Content-Disposition", "inline; filename=resume.pdf");
-      res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate, no-transform, no-save");
+      res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate, no-transform, no-save, private");
       res.setHeader("Pragma", "no-cache");
       res.setHeader("Expires", "0");
       res.setHeader("X-Content-Type-Options", "nosniff");
       res.setHeader("X-Frame-Options", "SAMEORIGIN");
-      res.setHeader("Content-Security-Policy", "default-src 'self'; frame-ancestors 'self'; object-src 'none'");
+      res.setHeader("Content-Security-Policy", "default-src 'self'; frame-ancestors 'self'; object-src 'none'; media-src 'none'");
       res.setHeader("X-Download-Options", "noopen");
       res.setHeader("X-Permitted-Cross-Domain-Policies", "none");
+      res.setHeader("X-Requested-With", "XMLHttpRequest");
     }
     
     // Stream the PDF to the browser
@@ -585,15 +623,53 @@ app.get("/pdf-content", (req, res) => {
       
       // Additional security: prevent right-click and keyboard shortcuts
       res.write(`
-        <script>
-          document.addEventListener('contextmenu', e => e.preventDefault());
-          document.addEventListener('keydown', e => {
-            if (e.ctrlKey && (e.key === 's' || e.key === 'S')) e.preventDefault();
-            if (e.ctrlKey && (e.key === 'c' || e.key === 'C')) e.preventDefault();
-            if (e.ctrlKey && (e.key === 'a' || e.key === 'A')) e.preventDefault();
-          });
-        </script>
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>PDF Viewer</title>
+          <style>
+            body { margin: 0; padding: 0; overflow: hidden; }
+            iframe { width: 100%; height: 100vh; border: none; }
+          </style>
+        </head>
+        <body>
+          <script>
+            // Prevent all download attempts
+            document.addEventListener('contextmenu', e => e.preventDefault());
+            document.addEventListener('keydown', e => {
+              if (e.ctrlKey && (e.key === 's' || e.key === 'S')) {
+                e.preventDefault();
+                e.stopPropagation();
+                return false;
+              }
+              if (e.ctrlKey && (e.key === 'c' || e.key === 'C')) {
+                e.preventDefault();
+                return false;
+              }
+              if (e.ctrlKey && (e.key === 'a' || e.key === 'A')) {
+                e.preventDefault();
+                return false;
+              }
+            });
+            
+            // Prevent drag and drop
+            document.addEventListener('dragstart', e => e.preventDefault());
+            document.addEventListener('drop', e => e.preventDefault());
+            
+            // Prevent selection
+            document.addEventListener('selectstart', e => e.preventDefault());
+            
+            // Block any download attempts
+            window.addEventListener('beforeunload', function() {
+              return false;
+            });
+          </script>
+          <iframe src="data:application/pdf;base64,${Buffer.from(fs.readFileSync(filePath)).toString('base64')}" type="application/pdf"></iframe>
+        </body>
+        </html>
       `);
+      
+      return; // Don't continue with streaming
     }
   } catch (err) {
     res.status(403).send("Access denied");
