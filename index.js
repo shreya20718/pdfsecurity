@@ -54,7 +54,7 @@ app.get("/send-email/:email", async (req, res) => {
     const token = jwt.sign({ email: email }, SECRET_KEY, {
       expiresIn: "12h",
     });
-
+    
     // Store the token for this specific recipient with edit permissions
     AUTHORIZED_RECIPIENTS.set(email, {
       token: token,
@@ -286,18 +286,9 @@ app.get("/view", (req, res) => {
               .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 20px; border-bottom: 1px solid #eee; }
               .pdf-container { width: 100%; height: 600px; border: 1px solid #ddd; border-radius: 5px; position: relative; }
               .pdf-iframe { width: 100%; height: 100%; border: none; }
-              .editing-overlay { position: absolute; top: 10px; right: 10px; background: rgba(255,255,255,0.95); padding: 15px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 1000; }
               button { background: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; margin: 5px; }
               button:hover { background: #0056b3; }
-              .save-button { background: #ffc107; color: #000; }
-              .save-button:hover { background: #e0a800; }
-              .upload-button { background: #dc3545; }
-              .upload-button:hover { background: #c82333; }
-              .status { margin-top: 10px; padding: 10px; border-radius: 5px; }
-              .success { background: #d4edda; color: #155724; }
-              .error { background: #f8d7da; color: #721c24; }
               .security-notice { background: #fff3cd; color: #856404; padding: 15px; border-radius: 5px; margin: 20px 0; border: 1px solid #ffeaa7; }
-              .text-input { position: absolute; background: white; border: 2px solid #007bff; border-radius: 3px; padding: 5px; font-size: 14px; z-index: 1001; display: none; }
           </style>
       </head>
       <body>
@@ -315,21 +306,10 @@ app.get("/view", (req, res) => {
               </div>
               
               <div class="pdf-container">
-                  <iframe src="/pdf-content?token=${token}" class="pdf-iframe" frameborder="0" onload="pdfLoaded()"></iframe>
-                  
-                  <!-- Text Input Overlay -->
-                  <input type="text" id="textInput" class="text-input" placeholder="Type your text here..." style="display: none;">
-                  
-                  <!-- Editing Tools Overlay - Always visible when PDF is loaded -->
-                  <div class="editing-overlay" id="editingOverlay">
-                      <h4 style="margin: 0 0 10px 0;">✏️ PDF Editor</h4>
-                      <p style="margin: 0 0 10px 0; font-size: 12px; color: #666;">Click anywhere on PDF to add text</p>
-                      <button class="save-button" onclick="saveChanges()" style="width: 100%; margin: 5px 0;">💾 Save Changes</button>
-                      <button class="upload-button" onclick="uploadToOwner()" style="width: 100%; margin: 5px 0;">📤 Send to Owner</button>
-                  </div>
+                  <iframe src="/pdf-content?token=${token}" class="pdf-iframe" frameborder="0"></iframe>
               </div>
               
-              <div id="status" class="status" style="display: none;"></div>
+
           </div>
           
           <script>
@@ -383,7 +363,7 @@ app.get("/view", (req, res) => {
                       return false;
                   }
                   if (e.ctrlKey && (e.key === 'a' || e.key === 'A')) {
-                      e.preventDefault();
+                  e.preventDefault();
                       return false;
                   }
               }
@@ -450,8 +430,8 @@ app.get("/view", (req, res) => {
                   formData.append('recipientEmail', '${tokenEmail}');
                   
                   fetch('/send-back', {
-                      method: 'POST',
-                      body: formData
+                          method: 'POST',
+                          body: formData
                   })
                   .then(response => response.json())
                   .then(result => {
@@ -540,7 +520,63 @@ app.get("/view", (req, res) => {
               document.addEventListener('DOMContentLoaded', function() {
                   console.log('PDF Editor initialized');
                   showStatus('🎯 PDF Editor ready! Click anywhere on the PDF to add text.', 'success');
+                  
+                  // Add additional download prevention
+                  preventAllDownloads();
               });
+              
+              // Prevent all possible download methods
+              function preventAllDownloads() {
+                  // Prevent right-click context menu
+                  document.addEventListener('contextmenu', function(e) {
+                      e.preventDefault();
+                      showStatus('❌ Right-click disabled for security', 'error');
+                      return false;
+                  });
+                  
+                  // Prevent keyboard shortcuts
+                  document.addEventListener('keydown', function(e) {
+                      if (e.ctrlKey && (e.key === 's' || e.key === 'S')) {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          showStatus('❌ Download not allowed!', 'error');
+                          return false;
+                      }
+                      if (e.ctrlKey && (e.key === 'c' || e.key === 'C')) {
+                          e.preventDefault();
+                          return false;
+                      }
+                      if (e.ctrlKey && (e.key === 'a' || e.key === 'A')) {
+                          e.preventDefault();
+                          return false;
+                      }
+                  });
+                  
+                  // Prevent drag and drop
+                  document.addEventListener('dragstart', function(e) {
+                      e.preventDefault();
+                      return false;
+                  });
+                  
+                  document.addEventListener('drop', function(e) {
+                      e.preventDefault();
+                      return false;
+                  });
+                  
+                  // Prevent text selection
+                  document.addEventListener('selectstart', function(e) {
+                      e.preventDefault();
+                      return false;
+                  });
+                  
+                  // Block any download attempts
+                  window.addEventListener('beforeunload', function(e) {
+                      e.preventDefault();
+                      return false;
+                  });
+                  
+                  console.log('Download prevention enabled');
+              }
           </script>
       </body>
       </html>
@@ -554,14 +590,14 @@ app.get("/view", (req, res) => {
           <style>
               body { font-family: Arial, sans-serif; text-align: center; margin: 50px; }
               .error { color: red; }
-            </style>
-        </head>
-        <body>
-            <h1 class="error">Access Denied</h1>
-            <p>Invalid or expired link.</p>
-        </body>
-        </html>
-      `);
+          </style>
+      </head>
+      <body>
+          <h1 class="error">Access Denied</h1>
+          <p>Invalid or expired link.</p>
+      </body>
+      </html>
+    `);
   }
 });
 
@@ -591,86 +627,23 @@ app.get("/pdf-content", (req, res) => {
 
     if (isOwner) {
       // Owner can download the PDF
-      res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Type", "application/pdf");
       res.setHeader("Content-Disposition", "attachment; filename=resume.pdf");
+    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
+    } else {
+      // Recipients can ONLY view, no download
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", "inline; filename=resume.pdf");
       res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
       res.setHeader("Pragma", "no-cache");
       res.setHeader("Expires", "0");
-    } else {
-      // Recipients can ONLY view, STRICTLY no download
-      res.setHeader("Content-Type", "application/pdf");
-      res.setHeader("Content-Disposition", "inline; filename=resume.pdf");
-      res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate, no-transform, no-save, private");
-      res.setHeader("Pragma", "no-cache");
-      res.setHeader("Expires", "0");
-      res.setHeader("X-Content-Type-Options", "nosniff");
-      res.setHeader("X-Frame-Options", "SAMEORIGIN");
-      res.setHeader("Content-Security-Policy", "default-src 'self'; frame-ancestors 'self'; object-src 'none'; media-src 'none'");
-      res.setHeader("X-Download-Options", "noopen");
-      res.setHeader("X-Permitted-Cross-Domain-Policies", "none");
-      res.setHeader("X-Requested-With", "XMLHttpRequest");
     }
     
     // Stream the PDF to the browser
     const stream = fs.createReadStream(filePath);
     stream.pipe(res);
-    
-    // STRICTLY prevent any download attempts for recipients
-    if (!isOwner) {
-      req.on('close', () => {
-        stream.destroy();
-      });
-      
-      // Additional security: prevent right-click and keyboard shortcuts
-      res.write(`
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <title>PDF Viewer</title>
-          <style>
-            body { margin: 0; padding: 0; overflow: hidden; }
-            iframe { width: 100%; height: 100vh; border: none; }
-          </style>
-        </head>
-        <body>
-          <script>
-            // Prevent all download attempts
-            document.addEventListener('contextmenu', e => e.preventDefault());
-            document.addEventListener('keydown', e => {
-              if (e.ctrlKey && (e.key === 's' || e.key === 'S')) {
-                e.preventDefault();
-                e.stopPropagation();
-                return false;
-              }
-              if (e.ctrlKey && (e.key === 'c' || e.key === 'C')) {
-                e.preventDefault();
-                return false;
-              }
-              if (e.ctrlKey && (e.key === 'a' || e.key === 'A')) {
-                e.preventDefault();
-                return false;
-              }
-            });
-            
-            // Prevent drag and drop
-            document.addEventListener('dragstart', e => e.preventDefault());
-            document.addEventListener('drop', e => e.preventDefault());
-            
-            // Prevent selection
-            document.addEventListener('selectstart', e => e.preventDefault());
-            
-            // Block any download attempts
-            window.addEventListener('beforeunload', function() {
-              return false;
-            });
-          </script>
-          <iframe src="data:application/pdf;base64,${Buffer.from(fs.readFileSync(filePath)).toString('base64')}" type="application/pdf"></iframe>
-        </body>
-        </html>
-      `);
-      
-      return; // Don't continue with streaming
-    }
   } catch (err) {
     res.status(403).send("Access denied");
   }
@@ -772,29 +745,29 @@ app.get("/", (req, res) => {
 
 // ----------------- EMAIL SENDER -----------------
 async function sendSecureLink() {
-  // Create token
+    // Create token
   const token = jwt.sign({ email: OWNER_EMAIL }, SECRET_KEY, {
     expiresIn: "12h",
   });
+    
+    const secureLink = `${DEPLOYED_URL}/view?token=${token}`;
 
-  const secureLink = `${DEPLOYED_URL}/view?token=${token}`;
-
-  let transporter = nodemailer.createTransport({
-    service: "gmail",
-    auth: {
+    let transporter = nodemailer.createTransport({
+      service: "gmail",
+      auth: {
       user: "shreyagaikwad107@gmail.com",
       pass: "ukrb lzop ycqs epvi",
-    },
-  });
+      },
+    });
 
-  let info = await transporter.sendMail({
+    let info = await transporter.sendMail({
     from: '"PDF Security System" <shreyagaikwad107@gmail.com>',
-    to: OWNER_EMAIL,
-    subject: "Your Secured PDF Link - View and Edit",
+      to: OWNER_EMAIL,
+      subject: "Your Secured PDF Link - View and Edit",
     text: `Hello, here is your secure PDF link (valid for 12h): ${secureLink}\n\nYou can view and edit the PDF directly in your browser, then send it back to the owner.`,
-  });
+    });
 
-  console.log("Email sent:", info.messageId);
+    console.log("Email sent:", info.messageId);
 }
 
 // ----------------- START SERVER -----------------
