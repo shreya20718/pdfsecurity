@@ -181,7 +181,7 @@ app.post("/send-back", upload.single('pdf'), async (req, res) => {
   }
 });
 
-pp.post("/edit-pdf", upload.single('pdf'), async (req, res) => {
+app.post("/edit-pdf", upload.single('pdf'), async (req, res) => {
   const { token, editType, editData } = req.body;
   
   try {
