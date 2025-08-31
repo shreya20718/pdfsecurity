@@ -582,11 +582,8 @@ app.get("/pdf-viewer", (req, res) => {
               
               <div class="pdf-container">
                   <div id="pdf-viewer" style="width: 100%; height: 100%; position: relative; overflow: hidden;">
-                      <div id="pdf-loading" style="text-align: center; padding: 50px; color: #666;">
-                          <div style="font-size: 24px; margin-bottom: 20px;">📄</div>
-                          <div>Loading PDF securely...</div>
-                          <div style="font-size: 12px; margin-top: 10px; color: #999;">Download disabled for security</div>
-                      </div>
+                      <iframe id="pdf-iframe" src="/pdf-content?token=${token}" style="width: 100%; height: 100%; border: none; pointer-events: auto;" frameborder="0"></iframe>
+                      <div id="pdf-overlay" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10;"></div>
                   </div>
                   <input type="text" id="textInput" class="text-input" placeholder="Type your text here...">
               </div>
@@ -815,28 +812,19 @@ app.get("/pdf-viewer", (req, res) => {
                   preventAllDownloads();
               });
               
-              // Load PDF securely without browser download controls
+              // Load PDF securely and enable editing
               function loadSecurePDF() {
                   const pdfViewer = document.getElementById('pdf-viewer');
-                  const loadingDiv = document.getElementById('pdf-loading');
+                  const pdfIframe = document.getElementById('pdf-iframe');
+                  const pdfOverlay = document.getElementById('pdf-overlay');
                   
-                  // Create a secure PDF viewer without browser controls
-                  loadingDiv.innerHTML = '<div style="font-size: 24px; margin-bottom: 20px;">🔒</div>' +
-                      '<div style="font-weight: bold; margin-bottom: 10px;">Secure PDF Viewer</div>' +
-                      '<div style="margin-bottom: 20px; color: #666;">This PDF is loaded securely in your browser</div>' +
-                      '<div style="font-size: 12px; color: #999; line-height: 1.4;">' +
-                          '<div>✅ View and edit enabled</div>' +
-                          '<div>❌ Download completely disabled</div>' +
-                          '<div>🔐 No browser PDF controls available</div>' +
-                      '</div>' +
-                      '<div style="margin-top: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px; font-size: 12px;">' +
-                          '<strong>Security Notice:</strong> This PDF cannot be downloaded, saved, or accessed outside this secure viewer.' +
-                      '</div>';
+                  // Enable PDF editing functionality
+                  enablePDFEditing();
                   
                   // Add click functionality for text editing
                   pdfViewer.addEventListener('click', handlePDFClick);
                   
-                  console.log('Secure PDF viewer loaded - download completely disabled');
+                  console.log('Secure PDF viewer loaded - PDF visible with download disabled');
               }
               
               // Prevent all possible download methods
@@ -889,7 +877,65 @@ app.get("/pdf-viewer", (req, res) => {
                       return false;
                   });
                   
+                  // Disable PDF iframe download functionality
+                  const pdfIframe = document.getElementById('pdf-iframe');
+                  if (pdfIframe) {
+                      pdfIframe.addEventListener('load', function() {
+                          try {
+                              const iframeDoc = pdfIframe.contentDocument || pdfIframe.contentWindow.document;
+                              if (iframeDoc) {
+                                  // Disable all download-related elements
+                                  const downloadElements = iframeDoc.querySelectorAll('a[download], button[download]');
+                                  downloadElements.forEach(el => {
+                                      el.style.display = 'none';
+                                      el.disabled = true;
+                                  });
+                                  
+                                  // Override download functions
+                                  if (iframeDoc.defaultView) {
+                                      iframeDoc.defaultView.open = function() { return null; };
+                                      iframeDoc.defaultView.print = function() { return false; };
+                                  }
+                              }
+                          } catch (e) {
+                              console.log('Cross-origin iframe, using alternative download prevention');
+                          }
+                      });
+                  }
+                  
                   console.log('Download prevention enabled');
+                  
+                  // Monitor and disable PDF controls continuously
+                  setInterval(function() {
+                      disablePDFControls();
+                  }, 1000);
+              }
+              
+              // Function to disable PDF viewer controls
+              function disablePDFControls() {
+                  const pdfIframe = document.getElementById('pdf-iframe');
+                  if (pdfIframe) {
+                      try {
+                          const iframeDoc = pdfIframe.contentDocument || pdfIframe.contentWindow.document;
+                          if (iframeDoc) {
+                              // Hide download buttons, print buttons, etc.
+                              const controls = iframeDoc.querySelectorAll('button, a, [role="button"]');
+                              controls.forEach(control => {
+                                  const text = control.textContent || control.title || '';
+                                  if (text.toLowerCase().includes('download') || 
+                                      text.toLowerCase().includes('save') || 
+                                      text.toLowerCase().includes('print') ||
+                                      text.toLowerCase().includes('export')) {
+                                      control.style.display = 'none';
+                                      control.disabled = true;
+                                      control.onclick = function(e) { e.preventDefault(); return false; };
+                                  }
+                              });
+                          }
+                      } catch (e) {
+                          // Cross-origin iframe, can't access content
+                      }
+                  }
               }
           </script>
       </body>
@@ -957,6 +1003,9 @@ app.get("/pdf-content", (req, res) => {
       res.setHeader("X-Content-Type-Options", "nosniff");
       res.setHeader("X-Frame-Options", "SAMEORIGIN");
       res.setHeader("Content-Security-Policy", "default-src 'self'; object-src 'none';");
+      // Prevent PDF download by setting specific headers
+      res.setHeader("X-Download-Options", "noopen");
+      res.setHeader("X-Permitted-Cross-Domain-Policies", "none");
     }
     
     // Stream the PDF to the browser
