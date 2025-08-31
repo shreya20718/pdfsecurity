@@ -577,13 +577,15 @@ app.get("/pdf-viewer", (req, res) => {
               </div>
               
               <div class="security-notice">
-                  <strong>🔐 Security Notice:</strong> This PDF opens directly in your browser. No external editors are allowed for security reasons. You can view and edit, but cannot download.
+                  <strong>🔐 Security Notice:</strong> PDF content is embedded directly below. You can view and edit by clicking anywhere on the PDF, but downloads are completely disabled for security.
               </div>
               
               <div class="pdf-container">
-                  <div id="pdf-viewer" style="width: 100%; height: 100%; position: relative; overflow: hidden;">
-                      <iframe id="pdf-iframe" src="/pdf-content?token=${token}" style="width: 100%; height: 100%; border: none; pointer-events: auto;" frameborder="0"></iframe>
-                      <div id="pdf-overlay" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10;"></div>
+                  <div id="pdf-content" style="width: 100%; height: 100%; position: relative; overflow: auto; border: 1px solid #ddd; border-radius: 5px; background: white;">
+                      <div id="pdf-loading" style="text-align: center; padding: 50px; color: #666;">
+                          <div style="font-size: 24px; margin-bottom: 20px;">📄</div>
+                          <div>Loading PDF content...</div>
+                      </div>
                   </div>
                   <input type="text" id="textInput" class="text-input" placeholder="Type your text here...">
               </div>
@@ -610,25 +612,28 @@ app.get("/pdf-viewer", (req, res) => {
               
               // Enable PDF editing functionality
               function enablePDFEditing() {
-                  const iframe = document.querySelector('.pdf-iframe');
-                  if (iframe) {
-                      // Add click event listener to the iframe itself
-                      iframe.addEventListener('click', handlePDFClick);
-                      
-                      // Also try to add to PDF content if accessible
-                      iframe.addEventListener('load', function() {
-                          try {
-                              const pdfDoc = iframe.contentDocument || iframe.contentWindow.document;
-                              if (pdfDoc) {
-                                  pdfDoc.addEventListener('click', handlePDFClick);
-                                  pdfDoc.addEventListener('contextmenu', e => e.preventDefault());
-                                  pdfDoc.addEventListener('keydown', preventDownloadShortcuts);
+                  // Wait for PDF content to load, then enable editing
+                  setTimeout(function() {
+                      const iframe = document.querySelector('#pdf-content iframe');
+                      if (iframe) {
+                          // Add click event listener to the iframe itself
+                          iframe.addEventListener('click', handlePDFClick);
+                          
+                          // Also try to add to PDF content if accessible
+                          iframe.addEventListener('load', function() {
+                              try {
+                                  const pdfDoc = iframe.contentDocument || iframe.contentWindow.document;
+                                  if (pdfDoc) {
+                                      pdfDoc.addEventListener('click', handlePDFClick);
+                                      pdfDoc.addEventListener('contextmenu', e => e.preventDefault());
+                                      pdfDoc.addEventListener('keydown', preventDownloadShortcuts);
+                                  }
+                              } catch (e) {
+                                  console.log('Cross-origin PDF, using iframe click events');
                               }
-                          } catch (e) {
-                              console.log('Cross-origin PDF, using iframe click events');
-                          }
-                      });
-                  }
+                          });
+                      }
+                  }, 1000); // Wait for PDF content to load
                   
                   // Add global click prevention for downloads
                   document.addEventListener('contextmenu', e => e.preventDefault());
@@ -674,6 +679,32 @@ app.get("/pdf-viewer", (req, res) => {
                       textInput.dataset.y = y;
                       
                       console.log('PDF clicked at:', x, y);
+                  }
+              }
+              
+              // Handle clicks on the PDF iframe for text editing
+              function handleIframeClick(event) {
+                  const textInput = document.getElementById('textInput');
+                  if (textInput) {
+                      // Position text input at click location relative to the iframe
+                      const iframe = document.querySelector('#pdf-content iframe');
+                      if (iframe) {
+                          const iframeRect = iframe.getBoundingClientRect();
+                          const x = event.clientX - iframeRect.left;
+                          const y = event.clientY - iframeRect.top;
+                          
+                          textInput.style.display = 'block';
+                          textInput.style.left = (event.clientX - 50) + 'px';
+                          textInput.style.top = (event.clientY - 25) + 'px';
+                          textInput.focus();
+                          textInput.placeholder = 'Type your text here...';
+                          
+                          // Store click position for text placement
+                          textInput.dataset.x = x;
+                          textInput.dataset.y = y;
+                          
+                          console.log('PDF iframe clicked at:', x, y);
+                      }
                   }
               }
               
@@ -814,17 +845,70 @@ app.get("/pdf-viewer", (req, res) => {
               
               // Load PDF securely and enable editing
               function loadSecurePDF() {
-                  const pdfViewer = document.getElementById('pdf-viewer');
-                  const pdfIframe = document.getElementById('pdf-iframe');
-                  const pdfOverlay = document.getElementById('pdf-overlay');
+                  const pdfContent = document.getElementById('pdf-content');
+                  
+                  // Load PDF content directly into the container
+                  loadPDFContent();
                   
                   // Enable PDF editing functionality
                   enablePDFEditing();
                   
                   // Add click functionality for text editing
-                  pdfViewer.addEventListener('click', handlePDFClick);
+                  pdfContent.addEventListener('click', handlePDFClick);
                   
-                  console.log('Secure PDF viewer loaded - PDF visible with download disabled');
+                  console.log('Secure PDF viewer loaded - PDF content embedded directly');
+              }
+              
+              // Load PDF content directly into the page
+              function loadPDFContent() {
+                  const pdfContent = document.getElementById('pdf-content');
+                  
+                  // Create a secure PDF viewer using PDF.js or embed directly
+                  pdfContent.innerHTML = '<div style="width: 100%; height: 100%; position: relative;">' +
+                      '<iframe src="/pdf-content?token=${token}" ' +
+                              'style="width: 100%; height: 100%; border: none; pointer-events: auto;" ' +
+                              'frameborder="0" ' +
+                              'onload="onPDFLoaded()">' +
+                      '</iframe>' +
+                      '<div id="pdf-overlay" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10;"></div>' +
+                      '</div>';
+              }
+              
+              // Called when PDF iframe loads
+              function onPDFLoaded() {
+                  console.log('PDF loaded successfully');
+                  showStatus('📄 PDF loaded! Click anywhere to add text.', 'success');
+                  
+                  // Disable download controls in the PDF
+                  disablePDFDownloadControls();
+              }
+              
+              // Function to disable PDF download controls
+              function disablePDFDownloadControls() {
+                  const iframe = document.querySelector('#pdf-content iframe');
+                  if (iframe) {
+                      try {
+                          const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+                          if (iframeDoc) {
+                              // Hide download buttons, print buttons, etc.
+                              const controls = iframeDoc.querySelectorAll('button, a, [role="button"]');
+                              controls.forEach(control => {
+                                  const text = control.textContent || control.title || '';
+                                  if (text.toLowerCase().includes('download') || 
+                                      text.toLowerCase().includes('save') || 
+                                      text.toLowerCase().includes('print') ||
+                                      text.toLowerCase().includes('export')) {
+                                      control.style.display = 'none';
+                                      control.disabled = true;
+                                      control.onclick = function(e) { e.preventDefault(); return false; };
+                                  }
+                              });
+                          }
+                      } catch (e) {
+                          // Cross-origin iframe, can't access content
+                          console.log('Cross-origin iframe, using alternative download prevention');
+                      }
+                  }
               }
               
               // Prevent all possible download methods
@@ -935,6 +1019,51 @@ app.get("/pdf-viewer", (req, res) => {
                       } catch (e) {
                           // Cross-origin iframe, can't access content
                       }
+                  }
+              }
+              
+              // Function to disable PDF download controls specifically
+              function disablePDFDownloadControls() {
+                  // Find the iframe that was just created
+                  const iframe = document.querySelector('#pdf-content iframe');
+                  if (iframe) {
+                      iframe.addEventListener('load', function() {
+                          try {
+                              const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+                              if (iframeDoc) {
+                                  // Disable all download-related elements
+                                  const downloadElements = iframeDoc.querySelectorAll('a[download], button[download]');
+                                  downloadElements.forEach(el => {
+                                      el.style.display = 'none';
+                                      el.disabled = true;
+                                  });
+                                  
+                                  // Override download functions
+                                  if (iframeDoc.defaultView) {
+                                      iframeDoc.defaultView.open = function() { return null; };
+                                      iframeDoc.defaultView.print = function() { return false; };
+                                  }
+                                  
+                                  // Monitor for new controls
+                                  setInterval(function() {
+                                      const controls = iframeDoc.querySelectorAll('button, a, [role="button"]');
+                                      controls.forEach(control => {
+                                          const text = control.textContent || control.title || '';
+                                          if (text.toLowerCase().includes('download') || 
+                                              text.toLowerCase().includes('save') || 
+                                              text.toLowerCase().includes('print') ||
+                                              text.toLowerCase().includes('export')) {
+                                              control.style.display = 'none';
+                                              control.disabled = true;
+                                              control.onclick = function(e) { e.preventDefault(); return false; };
+                                          }
+                                      });
+                                  }, 500);
+                              }
+                          } catch (e) {
+                              console.log('Cross-origin iframe, using alternative download prevention');
+                          }
+                      });
                   }
               }
           </script>
