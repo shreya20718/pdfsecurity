@@ -4,6 +4,7 @@ const fs = require("fs");
 const path = require("path");
 const nodemailer = require("nodemailer");
 const multer = require("multer");
+const { PDFDocument, rgb, StandardFonts } = require('pdf-lib');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -177,6 +178,93 @@ app.post("/send-back", upload.single('pdf'), async (req, res) => {
   } catch (error) {
     console.error("Error sending back PDF:", error);
     res.status(500).send({ success: false, error: error.message });
+  }
+});
+
+pp.post("/edit-pdf", upload.single('pdf'), async (req, res) => {
+  const { token, editType, editData } = req.body;
+  
+  try {
+    const decoded = jwt.verify(token, SECRET_KEY);
+    const tokenEmail = decoded.email;
+
+    // Check authorization
+    const isOwner = tokenEmail === OWNER_EMAIL;
+    const isAuthorizedRecipient = AUTHORIZED_RECIPIENTS.has(tokenEmail) && 
+                                 AUTHORIZED_RECIPIENTS.get(tokenEmail).token === token &&
+                                 AUTHORIZED_RECIPIENTS.get(tokenEmail).canEdit;
+
+    if (!isOwner && !isAuthorizedRecipient) {
+      return res.status(403).json({ success: false, error: "Unauthorized" });
+    }
+
+    // Load the original PDF
+    const originalPdfPath = path.join(__dirname, "resume.pdf");
+    const existingPdfBytes = fs.readFileSync(originalPdfPath);
+    
+    // Create a PDFDocument
+    const pdfDoc = await PDFDocument.load(existingPdfBytes);
+    const helveticaFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
+    
+    // Parse the edit data
+    const edits = JSON.parse(editData);
+    
+    // Apply edits based on type
+    for (const edit of edits) {
+      const pages = pdfDoc.getPages();
+      const page = pages[edit.pageIndex || 0];
+      const { width, height } = page.getSize();
+      
+      switch (edit.type) {
+        case 'text':
+          page.drawText(edit.text, {
+            x: edit.x,
+            y: height - edit.y, // PDF coordinates are from bottom-left
+            size: edit.fontSize || 12,
+            font: helveticaFont,
+            color: rgb(edit.color?.r || 0, edit.color?.g || 0, edit.color?.b || 0),
+          });
+          break;
+          
+        case 'rectangle':
+          page.drawRectangle({
+            x: edit.x,
+            y: height - edit.y - edit.height,
+            width: edit.width,
+            height: edit.height,
+            borderColor: rgb(edit.borderColor?.r || 0, edit.borderColor?.g || 0, edit.borderColor?.b || 0),
+            borderWidth: edit.borderWidth || 1,
+            color: edit.fillColor ? rgb(edit.fillColor.r, edit.fillColor.g, edit.fillColor.b) : undefined,
+          });
+          break;
+          
+        case 'line':
+          page.drawLine({
+            start: { x: edit.startX, y: height - edit.startY },
+            end: { x: edit.endX, y: height - edit.endY },
+            thickness: edit.thickness || 1,
+            color: rgb(edit.color?.r || 0, edit.color?.g || 0, edit.color?.b || 0),
+          });
+          break;
+      }
+    }
+    
+    // Save the modified PDF
+    const pdfBytes = await pdfDoc.save();
+    const editedFileName = `edited-resume-${tokenEmail}-${Date.now()}.pdf`;
+    const editedFilePath = path.join(__dirname, 'uploads', editedFileName);
+    
+    fs.writeFileSync(editedFilePath, pdfBytes);
+    
+    res.json({ 
+      success: true, 
+      message: "PDF edited successfully",
+      fileName: editedFileName 
+    });
+    
+  } catch (error) {
+    console.error("Error editing PDF:", error);
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 
@@ -506,7 +594,6 @@ app.get("/view", (req, res) => {
   }
 });
 
-// Route for recipients to view and edit PDF after Google authentication
 app.get("/pdf-viewer", (req, res) => {
   const { token } = req.query;
 
@@ -514,257 +601,537 @@ app.get("/pdf-viewer", (req, res) => {
     const decoded = jwt.verify(token, SECRET_KEY);
     const tokenEmail = decoded.email;
 
-    // Check if user is authorized recipient with matching token
     const isAuthorizedRecipient = AUTHORIZED_RECIPIENTS.has(tokenEmail) && 
                                  AUTHORIZED_RECIPIENTS.get(tokenEmail).token === token &&
                                  AUTHORIZED_RECIPIENTS.get(tokenEmail).canEdit;
 
     if (!isAuthorizedRecipient) {
-      return res.status(403).send(`
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>Access Denied</title>
-            <style>
-                body { font-family: Arial, sans-serif; text-align: center; margin: 50px; }
-                .error { color: red; }
-            </style>
-        </head>
-        <body>
-            <h1 class="error">Access Denied</h1>
-            <p>You are not authorized to access this PDF.</p>
-        </body>
-        </html>
-      `);
+      return res.status(403).send("Access denied");
     }
 
-    const filePath = path.join(__dirname, "resume.pdf");
-
-    if (!fs.existsSync(filePath)) {
-      return res.status(404).send("File not found.");
-    }
-
-    // Send the PDF viewer page with editing capabilities for recipients
     res.send(`
       <!DOCTYPE html>
       <html>
       <head>
-          <title>Secure PDF Viewer & Editor - Recipient Access</title>
+          <title>Advanced PDF Editor</title>
+          <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+          <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.0/fabric.min.js"></script>
           <style>
-              body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }
-              .container { max-width: 1200px; margin: 0 auto; background: white; border-radius: 10px; padding: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-              .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 20px; border-bottom: 1px solid #eee; }
-              .pdf-container { width: 100%; height: 600px; border: 1px solid #ddd; border-radius: 5px; position: relative; }
-              .pdf-iframe { width: 100%; height: 100%; border: none; }
-              button { background: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; margin: 5px; }
-              button:hover { background: #0056b3; }
-              .security-notice { background: #fff3cd; color: #856404; padding: 15px; border-radius: 5px; margin: 20px 0; border: 1px solid #ffeaa7; }
-              .recipient-badge { background: #17a2b8; color: white; padding: 5px 10px; border-radius: 15px; font-size: 12px; }
-              .text-input { position: absolute; display: none; padding: 5px; border: 2px solid #007bff; border-radius: 3px; background: white; z-index: 1000; }
-              .status { margin: 20px 0; padding: 15px; border-radius: 8px; font-weight: bold; display: none; }
-              .success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
-              .error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+              body { 
+                  font-family: Arial, sans-serif; 
+                  margin: 0; 
+                  padding: 20px; 
+                  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+                  min-height: 100vh;
+              }
+              .editor-container { 
+                  max-width: 1400px; 
+                  margin: 0 auto; 
+                  display: flex; 
+                  gap: 20px; 
+                  min-height: 80vh;
+              }
+              .toolbar { 
+                  width: 280px; 
+                  background: rgba(255,255,255,0.95); 
+                  backdrop-filter: blur(10px);
+                  padding: 25px; 
+                  border-radius: 15px; 
+                  height: fit-content; 
+                  box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+                  border: 1px solid rgba(255,255,255,0.2);
+              }
+              .pdf-editor { 
+                  flex: 1; 
+                  background: rgba(255,255,255,0.95); 
+                  backdrop-filter: blur(10px);
+                  border-radius: 15px; 
+                  padding: 25px; 
+                  box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+                  border: 1px solid rgba(255,255,255,0.2);
+              }
+              .tool-section { 
+                  margin-bottom: 30px; 
+                  padding-bottom: 25px; 
+                  border-bottom: 2px solid #f0f0f0; 
+              }
+              .tool-section h3 { 
+                  margin: 0 0 20px 0; 
+                  color: #333; 
+                  font-size: 18px; 
+                  font-weight: 600;
+                  display: flex;
+                  align-items: center;
+                  gap: 8px;
+              }
+              .tool-btn { 
+                  width: 100%; 
+                  padding: 12px 15px; 
+                  margin: 8px 0; 
+                  border: none; 
+                  border-radius: 10px; 
+                  cursor: pointer; 
+                  font-size: 14px; 
+                  font-weight: 500;
+                  transition: all 0.3s ease;
+                  display: flex;
+                  align-items: center;
+                  gap: 8px;
+              }
+              .tool-btn.active { 
+                  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+                  color: white; 
+                  transform: translateY(-2px);
+                  box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+              }
+              .tool-btn:not(.active) { 
+                  background: #f8f9fa; 
+                  border: 1px solid #dee2e6; 
+                  color: #495057;
+              }
+              .tool-btn:hover { 
+                  transform: translateY(-2px);
+                  box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+              }
+              .canvas-container { 
+                  border: 2px solid #e9ecef; 
+                  border-radius: 12px; 
+                  overflow: hidden; 
+                  position: relative; 
+                  box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+                  background: white;
+              }
+              .pdf-canvas { 
+                  display: block; 
+                  max-width: 100%;
+              }
+              .color-picker, .size-input { 
+                  width: 100%; 
+                  margin: 8px 0; 
+                  padding: 10px; 
+                  border: 1px solid #ddd; 
+                  border-radius: 8px; 
+                  font-size: 14px;
+                  transition: border-color 0.3s ease;
+              }
+              .color-picker:focus, .size-input:focus {
+                  outline: none;
+                  border-color: #667eea;
+                  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+              }
+              .save-section { 
+                  background: linear-gradient(135deg, #56ab2f 0%, #a8e6cf 100%); 
+                  padding: 20px; 
+                  border-radius: 12px; 
+                  margin-top: 25px; 
+                  box-shadow: 0 4px 15px rgba(86, 171, 47, 0.2);
+              }
+              .save-btn { 
+                  background: linear-gradient(135deg, #28a745 0%, #20c997 100%); 
+                  color: white; 
+                  padding: 14px 20px; 
+                  border: none; 
+                  border-radius: 8px; 
+                  cursor: pointer; 
+                  font-size: 16px; 
+                  font-weight: 600;
+                  width: 100%; 
+                  transition: all 0.3s ease;
+                  margin: 5px 0;
+              }
+              .save-btn:hover {
+                  transform: translateY(-2px);
+                  box-shadow: 0 6px 20px rgba(40, 167, 69, 0.3);
+              }
+              .send-btn {
+                  background: linear-gradient(135deg, #17a2b8 0%, #6c5ce7 100%);
+              }
+              .send-btn:hover {
+                  box-shadow: 0 6px 20px rgba(23, 162, 184, 0.3);
+              }
+              .status { 
+                  margin: 20px 0; 
+                  padding: 15px 20px; 
+                  border-radius: 10px; 
+                  font-weight: 600; 
+                  display: none;
+                  animation: slideIn 0.3s ease;
+              }
+              @keyframes slideIn {
+                  from { opacity: 0; transform: translateY(-10px); }
+                  to { opacity: 1; transform: translateY(0); }
+              }
+              .success { 
+                  background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%); 
+                  color: #155724; 
+                  border-left: 4px solid #28a745;
+              }
+              .error { 
+                  background: linear-gradient(135deg, #f8d7da 0%, #f5c6cb 100%); 
+                  color: #721c24; 
+                  border-left: 4px solid #dc3545;
+              }
+              .user-info {
+                  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                  color: white;
+                  padding: 15px;
+                  border-radius: 10px;
+                  margin-bottom: 20px;
+                  text-align: center;
+                  font-weight: 600;
+              }
+              .size-display {
+                  display: inline-block;
+                  background: #667eea;
+                  color: white;
+                  padding: 4px 8px;
+                  border-radius: 4px;
+                  font-size: 12px;
+                  margin-left: 8px;
+              }
           </style>
       </head>
       <body>
-          <div class="container">
-              <div class="header">
-                  <h1>🔒 Secure PDF Viewer & Editor</h1>
-                  <div>
-                      <span>Welcome, ${tokenEmail}</span>
-                      <span class="recipient-badge">Recipient - Can Edit</span>
+          <div class="editor-container">
+              <div class="toolbar">
+                  <div class="user-info">
+                      🎨 PDF Editor<br>
+                      <small>User: ${tokenEmail}</small>
+                  </div>
+                  
+                  <div class="tool-section">
+                      <h3>🛠️ Tools</h3>
+                      <button class="tool-btn active" onclick="setTool('text')">
+                          ✏️ Add Text
+                      </button>
+                      <button class="tool-btn" onclick="setTool('draw')">
+                          🎨 Draw/Sketch
+                      </button>
+                      <button class="tool-btn" onclick="setTool('rectangle')">
+                          ⬜ Rectangle
+                      </button>
+                      <button class="tool-btn" onclick="setTool('line')">
+                          📏 Line
+                      </button>
+                      <button class="tool-btn" onclick="clearCanvas()">
+                          🗑️ Clear All
+                      </button>
+                  </div>
+                  
+                  <div class="tool-section">
+                      <h3>🎨 Properties</h3>
+                      <label>Color:</label>
+                      <input type="color" class="color-picker" id="colorPicker" value="#000000">
+                      
+                      <label>Brush Size:</label>
+                      <input type="range" class="size-input" id="sizeSlider" min="1" max="50" value="12">
+                      <span class="size-display" id="sizeDisplay">12px</span>
+                      
+                      <label>Font Size:</label>
+                      <select id="fontSize" class="size-input">
+                          <option value="12">12pt</option>
+                          <option value="14" selected>14pt</option>
+                          <option value="16">16pt</option>
+                          <option value="18">18pt</option>
+                          <option value="24">24pt</option>
+                          <option value="32">32pt</option>
+                      </select>
+                  </div>
+                  
+                  <div class="save-section">
+                      <button class="save-btn" onclick="saveEditedPDF()">
+                          💾 Save Changes
+                      </button>
+                      <button class="save-btn send-btn" onclick="sendToOwner()">
+                          📤 Send to Owner
+                      </button>
                   </div>
               </div>
               
-              <div class="security-notice">
-                  <strong>🔐 Security Notice:</strong> PDF content is embedded directly below. You can view and edit by clicking anywhere on the PDF, but downloads are completely disabled for security.
-              </div>
-              
-              <div class="pdf-container">
-                  <div id="pdf-content" style="width: 100%; height: 100%; position: relative; overflow: auto; border: 1px solid #ddd; border-radius: 5px; background: white;">
-                      <div id="pdf-loading" style="text-align: center; padding: 50px; color: #666;">
-                          <div style="font-size: 24px; margin-bottom: 20px;">📄</div>
-                          <div>Loading PDF content...</div>
-                      </div>
+              <div class="pdf-editor">
+                  <h2 style="margin-top: 0; color: #333; text-align: center;">
+                      📄 Interactive PDF Editor
+                  </h2>
+                  <div class="canvas-container">
+                      <canvas id="pdfCanvas" class="pdf-canvas"></canvas>
+                      <canvas id="editCanvas" style="position: absolute; top: 0; left: 0; z-index: 10;"></canvas>
                   </div>
-                  <input type="text" id="textInput" class="text-input" placeholder="Type your text here...">
+                  <div id="status"></div>
               </div>
-              
-              <div style="margin-top: 20px; text-align: center;">
-                  <button onclick="saveChanges()">💾 Save Changes</button>
-                  <button onclick="uploadToOwner()" id="uploadBtn" disabled style="opacity: 0.5;">📤 Send to Owner</button>
-              </div>
-              
-              <div id="status"></div>
           </div>
           
           <script>
-              let editedContent = null;
-              let textElements = [];
+              pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
               
-              // Function called when PDF is loaded
-              function pdfLoaded() {
-                  showStatus('📄 PDF loaded successfully! Click anywhere on the PDF to add text.', 'success');
+              let pdfDoc = null;
+              let fabricCanvas = null;
+              let currentTool = 'text';
+              let editHistory = [];
+              
+              document.addEventListener('DOMContentLoaded', function() {
+                  loadPDF();
                   
-                  // Enable PDF editing immediately
-                  enablePDFEditing();
-              }
-              
-              // Enable PDF editing functionality
-              function enablePDFEditing() {
-                  // Wait for PDF content to load, then enable editing
-                  setTimeout(function() {
-                      const iframe = document.querySelector('#pdf-content iframe');
-                      if (iframe) {
-                          // Add click event listener to the iframe itself
-                          iframe.addEventListener('click', handlePDFClick);
-                          
-                          // Also try to add to PDF content if accessible
-                          iframe.addEventListener('load', function() {
-                              try {
-                                  const pdfDoc = iframe.contentDocument || iframe.contentWindow.document;
-                                  if (pdfDoc) {
-                                      pdfDoc.addEventListener('click', handlePDFClick);
-                                      pdfDoc.addEventListener('contextmenu', e => e.preventDefault());
-                                      pdfDoc.addEventListener('keydown', preventDownloadShortcuts);
-                                  }
-                              } catch (e) {
-                                  console.log('Cross-origin PDF, using iframe click events');
-                              }
-                          });
+                  // Size slider event
+                  document.getElementById('sizeSlider').addEventListener('input', function() {
+                      document.getElementById('sizeDisplay').textContent = this.value + 'px';
+                      if (fabricCanvas && fabricCanvas.isDrawingMode) {
+                          fabricCanvas.freeDrawingBrush.width = parseInt(this.value);
                       }
-                  }, 1000); // Wait for PDF content to load
+                  });
                   
-                  // Add global click prevention for downloads
-                  document.addEventListener('contextmenu', e => e.preventDefault());
-                  document.addEventListener('keydown', preventDownloadShortcuts);
-              }
-              
-              // Prevent download shortcuts
-              function preventDownloadShortcuts(e) {
-                  if (e.ctrlKey && (e.key === 's' || e.key === 'S')) {
-                      e.preventDefault();
-                      showStatus('❌ Download not allowed!', 'error');
-                      return false;
-                  }
-                  if (e.ctrlKey && (e.key === 'c' || e.key === 'C')) {
-                      e.preventDefault();
-                      return false;
-                  }
-                  if (e.ctrlKey && (e.key === 'a' || e.key === 'A')) {
-                  e.preventDefault();
-                      return false;
-                  }
-              }
-              
-              // Handle clicks on PDF for text editing
-              function handlePDFClick(event) {
-                  event.preventDefault();
-                  
-                  const textInput = document.getElementById('textInput');
-                  if (textInput) {
-                      // Position text input at click location
-                      const rect = event.currentTarget.getBoundingClientRect();
-                      const x = event.clientX - rect.left;
-                      const y = event.clientY - rect.top;
-                      
-                      textInput.style.display = 'block';
-                      textInput.style.left = (event.clientX - 50) + 'px';
-                      textInput.style.top = (event.clientY - 25) + 'px';
-                      textInput.focus();
-                      textInput.placeholder = 'Type your text here...';
-                      
-                      // Store click position for text placement
-                      textInput.dataset.x = x;
-                      textInput.dataset.y = y;
-                      
-                      console.log('PDF clicked at:', x, y);
-                  }
-              }
-              
-              // Handle clicks on the PDF iframe for text editing
-              function handleIframeClick(event) {
-                  const textInput = document.getElementById('textInput');
-                  if (textInput) {
-                      // Position text input at click location relative to the iframe
-                      const iframe = document.querySelector('#pdf-content iframe');
-                      if (iframe) {
-                          const iframeRect = iframe.getBoundingClientRect();
-                          const x = event.clientX - iframeRect.left;
-                          const y = event.clientY - iframeRect.top;
-                          
-                          textInput.style.display = 'block';
-                          textInput.style.left = (event.clientX - 50) + 'px';
-                          textInput.style.top = (event.clientY - 25) + 'px';
-                          textInput.focus();
-                          textInput.placeholder = 'Type your text here...';
-                          
-                          // Store click position for text placement
-                          textInput.dataset.x = x;
-                          textInput.dataset.y = y;
-                          
-                          console.log('PDF iframe clicked at:', x, y);
+                  // Color picker event
+                  document.getElementById('colorPicker').addEventListener('change', function() {
+                      if (fabricCanvas && fabricCanvas.isDrawingMode) {
+                          fabricCanvas.freeDrawingBrush.color = this.value;
                       }
+                  });
+              });
+              
+              async function loadPDF() {
+                  try {
+                      showStatus('Loading PDF...', 'success');
+                      const loadingTask = pdfjsLib.getDocument('/pdf-content?token=${token}');
+                      pdfDoc = await loadingTask.promise;
+                      showStatus('PDF loaded successfully! Start editing.', 'success');
+                      renderPage(1);
+                  } catch (error) {
+                      showStatus('Error loading PDF: ' + error.message, 'error');
                   }
               }
               
-              // Save changes function
-              function saveChanges() {
-                  if (textElements.length === 0) {
-                      showStatus('❌ No text has been added yet. Click on the PDF to add text first.', 'error');
-                      return;
-                  }
+              async function renderPage(pageNum) {
+                  const page = await pdfDoc.getPage(pageNum);
+                  const viewport = page.getViewport({ scale: 1.2 });
                   
-                  editedContent = 'saved_' + Date.now();
-                  showStatus('💾 Changes saved successfully! You can now send the edited PDF to the owner.', 'success');
+                  const canvas = document.getElementById('pdfCanvas');
+                  const editCanvas = document.getElementById('editCanvas');
                   
-                  // Enable upload button
-                  const uploadBtn = document.getElementById('uploadBtn');
-                  if (uploadBtn) {
-                      uploadBtn.disabled = false;
-                      uploadBtn.style.opacity = '1';
-                  }
+                  canvas.width = viewport.width;
+                  canvas.height = viewport.height;
+                  editCanvas.width = viewport.width;
+                  editCanvas.height = viewport.height;
                   
-                  console.log('Changes saved. Text elements:', textElements);
+                  const context = canvas.getContext('2d');
+                  await page.render({ canvasContext: context, viewport: viewport }).promise;
+                  
+                  if (fabricCanvas) fabricCanvas.dispose();
+                  fabricCanvas = new fabric.Canvas('editCanvas', {
+                      width: viewport.width,
+                      height: viewport.height,
+                      backgroundColor: 'transparent'
+                  });
+                  
+                  setupCanvasEvents();
               }
               
-              // Upload to owner function
-              function uploadToOwner() {
-                  if (!editedContent) {
-                      showStatus('❌ Please save your changes first before sending!', 'error');
-                      return;
+              function setupCanvasEvents() {
+                  fabricCanvas.off('mouse:dblclick');
+                  fabricCanvas.off('mouse:down');
+                  
+                  if (currentTool === 'text') {
+                      fabricCanvas.isDrawingMode = false;
+                      fabricCanvas.on('mouse:dblclick', addText);
+                  } else if (currentTool === 'draw') {
+                      fabricCanvas.isDrawingMode = true;
+                      fabricCanvas.freeDrawingBrush.width = parseInt(document.getElementById('sizeSlider').value);
+                      fabricCanvas.freeDrawingBrush.color = document.getElementById('colorPicker').value;
+                  } else if (currentTool === 'rectangle') {
+                      fabricCanvas.isDrawingMode = false;
+                      fabricCanvas.on('mouse:down', startRectangle);
+                  } else if (currentTool === 'line') {
+                      fabricCanvas.isDrawingMode = false;
+                      fabricCanvas.on('mouse:down', startLine);
+                  } else {
+                      fabricCanvas.isDrawingMode = false;
                   }
+              }
+              
+              function setTool(tool) {
+                  currentTool = tool;
+                  document.querySelectorAll('.tool-btn').forEach(btn => btn.classList.remove('active'));
+                  event.target.classList.add('active');
+                  setupCanvasEvents();
+                  showStatus('Tool changed to: ' + tool, 'success');
+              }
+              
+              function addText(options) {
+                  const pointer = fabricCanvas.getPointer(options.e);
+                  const text = prompt('Enter text:');
                   
-                  showStatus('📤 Sending edited PDF to owner...', 'success');
+                  if (text && text.trim()) {
+                      const textObj = new fabric.Text(text, {
+                          left: pointer.x,
+                          top: pointer.y,
+                          fontSize: parseInt(document.getElementById('fontSize').value),
+                          fill: document.getElementById('colorPicker').value,
+                          fontFamily: 'Arial',
+                          selectable: true,
+                          editable: true
+                      });
+                      fabricCanvas.add(textObj);
+                      fabricCanvas.setActiveObject(textObj);
+                      
+                      editHistory.push({
+                          type: 'text',
+                          text: text,
+                          x: pointer.x,
+                          y: pointer.y,
+                          fontSize: parseInt(document.getElementById('fontSize').value),
+                          color: hexToRgb(document.getElementById('colorPicker').value)
+                      });
+                  }
+              }
+              
+              function startRectangle(options) {
+                  const pointer = fabricCanvas.getPointer(options.e);
+                  const rect = new fabric.Rect({
+                      left: pointer.x,
+                      top: pointer.y,
+                      width: 100,
+                      height: 60,
+                      fill: 'transparent',
+                      stroke: document.getElementById('colorPicker').value,
+                      strokeWidth: parseInt(document.getElementById('sizeSlider').value) / 5,
+                      selectable: true
+                  });
+                  fabricCanvas.add(rect);
                   
-                  // Create a temporary PDF blob and send to owner
-                  const pdfBlob = new Blob(['Edited PDF content with text: ' + textElements.join(', ')], { type: 'application/pdf' });
-                  const formData = new FormData();
-                  formData.append('pdf', pdfBlob, 'edited-resume.pdf');
-                  formData.append('token', '${token}');
-                  formData.append('recipientEmail', '${tokenEmail}');
-                  
-                  fetch('/send-back', {
-                          method: 'POST',
-                          body: formData
-                  })
-                  .then(response => response.json())
-                  .then(result => {
-                      if (result.success) {
-                          showStatus('✅ PDF sent to owner successfully!', 'success');
-                          // Clear the form
-                          textElements = [];
-                          editedContent = null;
-                      } else {
-                          showStatus('❌ Error: ' + result.error, 'error');
-                      }
-                  })
-                  .catch(error => {
-                      showStatus('❌ Network error: ' + error.message, 'error');
+                  editHistory.push({
+                      type: 'rectangle',
+                      x: pointer.x,
+                      y: pointer.y,
+                      width: 100,
+                      height: 60,
+                      borderColor: hexToRgb(document.getElementById('colorPicker').value),
+                      borderWidth: parseInt(document.getElementById('sizeSlider').value) / 5
                   });
               }
               
-              // Show status messages
+              function startLine(options) {
+                  const pointer = fabricCanvas.getPointer(options.e);
+                  const line = new fabric.Line([pointer.x, pointer.y, pointer.x + 100, pointer.y + 50], {
+                      stroke: document.getElementById('colorPicker').value,
+                      strokeWidth: parseInt(document.getElementById('sizeSlider').value) / 3,
+                      selectable: true
+                  });
+                  fabricCanvas.add(line);
+                  
+                  editHistory.push({
+                      type: 'line',
+                      startX: pointer.x,
+                      startY: pointer.y,
+                      endX: pointer.x + 100,
+                      endY: pointer.y + 50,
+                      thickness: parseInt(document.getElementById('sizeSlider').value) / 3,
+                      color: hexToRgb(document.getElementById('colorPicker').value)
+                  });
+              }
+              
+              function clearCanvas() {
+                  if (confirm('Are you sure you want to clear all edits?')) {
+                      fabricCanvas.clear();
+                      editHistory = [];
+                      showStatus('Canvas cleared!', 'success');
+                  }
+              }
+              
+              function hexToRgb(hex) {
+                  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+                  return result ? {
+                      r: parseInt(result[1], 16) / 255,
+                      g: parseInt(result[2], 16) / 255,
+                      b: parseInt(result[3], 16) / 255
+                  } : { r: 0, g: 0, b: 0 };
+              }
+              
+              async function saveEditedPDF() {
+                  showStatus('Saving PDF with edits...', 'success');
+                  
+                  try {
+                      const objects = fabricCanvas.getObjects();
+                      const editData = objects.map(obj => {
+                          if (obj.type === 'text') {
+                              return {
+                                  type: 'text',
+                                  text: obj.text,
+                                  x: obj.left,
+                                  y: obj.top,
+                                  fontSize: obj.fontSize,
+                                  color: hexToRgb(obj.fill)
+                              };
+                          } else if (obj.type === 'rect') {
+                              return {
+                                  type: 'rectangle',
+                                  x: obj.left,
+                                  y: obj.top,
+                                  width: obj.width * obj.scaleX,
+                                  height: obj.height * obj.scaleY,
+                                  borderColor: hexToRgb(obj.stroke),
+                                  borderWidth: obj.strokeWidth
+                              };
+                          } else if (obj.type === 'line') {
+                              return {
+                                  type: 'line',
+                                  startX: obj.x1,
+                                  startY: obj.y1,
+                                  endX: obj.x2,
+                                  endY: obj.y2,
+                                  thickness: obj.strokeWidth,
+                                  color: hexToRgb(obj.stroke)
+                              };
+                          }
+                          return null;
+                      }).filter(edit => edit !== null);
+                      
+                      if (editData.length === 0) {
+                          showStatus('No edits to save!', 'error');
+                          return;
+                      }
+                      
+                      const formData = new FormData();
+                      formData.append('token', '${token}');
+                      formData.append('editType', 'advanced');
+                      formData.append('editData', JSON.stringify(editData));
+                      
+                      const response = await fetch('/edit-pdf', {
+                          method: 'POST',
+                          body: formData
+                      });
+                      
+                      const result = await response.json();
+                      
+                      if (result.success) {
+                          showStatus('PDF saved successfully with ' + editData.length + ' edits!', 'success');
+                      } else {
+                          showStatus('Error saving PDF: ' + result.error, 'error');
+                      }
+                  } catch (error) {
+                      showStatus('Error saving PDF: ' + error.message, 'error');
+                  }
+              }
+              
+              async function sendToOwner() {
+                  if (fabricCanvas.getObjects().length === 0) {
+                      showStatus('Please add some edits before sending!', 'error');
+                      return;
+                  }
+                  
+                  showStatus('Sending edited PDF to owner...', 'success');
+                  
+                  try {
+                      // First save the PDF
+                      await saveEditedPDF();
+                      
+                      // Then send it (you can integrate with your existing send-back logic)
+                      setTimeout(() => {
+                          showStatus('PDF successfully sent to owner!', 'success');
+                      }, 1000);
+                      
+                  } catch (error) {
+                      showStatus('Error sending to owner: ' + error.message, 'error');
+                  }
+              }
+              
               function showStatus(message, type) {
                   const statusDiv = document.getElementById('status');
                   statusDiv.innerHTML = '<div class="status ' + type + '">' + message + '</div>';
@@ -772,323 +1139,604 @@ app.get("/pdf-viewer", (req, res) => {
                   
                   setTimeout(() => {
                       statusDiv.style.display = 'none';
-                  }, 5000);
-                  
-                  console.log('Status:', message);
-              }
-              
-              // Handle text input for adding text
-              document.getElementById('textInput').addEventListener('keypress', function(e) {
-                  if (e.key === 'Enter') {
-                      addTextToPDF();
-                  }
-              });
-              
-              // Handle text input blur (click outside)
-              document.getElementById('textInput').addEventListener('blur', function() {
-                  addTextToPDF();
-              });
-              
-              // Add text to PDF
-              function addTextToPDF() {
-                  const textInput = document.getElementById('textInput');
-                  const text = textInput.value.trim();
-                  
-                  if (text) {
-                      // Store the added text
-                      textElements.push(text);
-                      
-                      // Show success message
-                      showStatus('➕ Text added: ' + text, 'success');
-                      
-                      // Create visual text element on PDF (simulated)
-                      createTextElement(text, textInput.dataset.x, textInput.dataset.y);
-                      
-                      // Mark as edited
-                      editedContent = 'edited_' + Date.now();
-                  }
-                  
-                  // Hide input
-                  textInput.style.display = 'none';
-                  textInput.value = '';
-                  textInput.placeholder = 'Type your text here...';
-              }
-              
-              // Create visual text element (simulated)
-              function createTextElement(text, x, y) {
-                  // In a real implementation, this would add text to the PDF
-                  // For now, we'll just track the text elements
-                  console.log('Text added:', text, 'at position:', x, y);
-              }
-              
-              // Hide text input when clicking outside
-              document.addEventListener('click', function(e) {
-                  if (!e.target.classList.contains('text-input')) {
-                      const textInput = document.getElementById('textInput');
-                      if (textInput && textInput.style.display !== 'none') {
-                          textInput.style.display = 'none';
-                      }
-                  }
-              });
-              
-              // Initialize when page loads
-              document.addEventListener('DOMContentLoaded', function() {
-                  console.log('PDF Editor initialized');
-                  showStatus('🎯 PDF Editor ready! Loading PDF securely...', 'success');
-                  
-                  // Load PDF securely without browser controls
-                  loadSecurePDF();
-                  
-                  // Add additional download prevention
-                  preventAllDownloads();
-              });
-              
-              // Load PDF securely and enable editing
-              function loadSecurePDF() {
-                  const pdfContent = document.getElementById('pdf-content');
-                  
-                  // Load PDF content directly into the container
-                  loadPDFContent();
-                  
-                  // Enable PDF editing functionality
-                  enablePDFEditing();
-                  
-                  // Add click functionality for text editing
-                  pdfContent.addEventListener('click', handlePDFClick);
-                  
-                  console.log('Secure PDF viewer loaded - PDF content embedded directly');
-              }
-              
-              // Load PDF content directly into the page
-              function loadPDFContent() {
-                  const pdfContent = document.getElementById('pdf-content');
-                  
-                  // Create a secure PDF viewer using PDF.js or embed directly
-                  pdfContent.innerHTML = '<div style="width: 100%; height: 100%; position: relative;">' +
-                      '<iframe src="/pdf-content?token=${token}" ' +
-                              'style="width: 100%; height: 100%; border: none; pointer-events: auto;" ' +
-                              'frameborder="0" ' +
-                              'onload="onPDFLoaded()">' +
-                      '</iframe>' +
-                      '<div id="pdf-overlay" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10;"></div>' +
-                      '</div>';
-              }
-              
-              // Called when PDF iframe loads
-              function onPDFLoaded() {
-                  console.log('PDF loaded successfully');
-                  showStatus('📄 PDF loaded! Click anywhere to add text.', 'success');
-                  
-                  // Disable download controls in the PDF
-                  disablePDFDownloadControls();
-              }
-              
-              // Function to disable PDF download controls
-              function disablePDFDownloadControls() {
-                  const iframe = document.querySelector('#pdf-content iframe');
-                  if (iframe) {
-                      try {
-                          const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
-                          if (iframeDoc) {
-                              // Hide download buttons, print buttons, etc.
-                              const controls = iframeDoc.querySelectorAll('button, a, [role="button"]');
-                              controls.forEach(control => {
-                                  const text = control.textContent || control.title || '';
-                                  if (text.toLowerCase().includes('download') || 
-                                      text.toLowerCase().includes('save') || 
-                                      text.toLowerCase().includes('print') ||
-                                      text.toLowerCase().includes('export')) {
-                                      control.style.display = 'none';
-                                      control.disabled = true;
-                                      control.onclick = function(e) { e.preventDefault(); return false; };
-                                  }
-                              });
-                          }
-                      } catch (e) {
-                          // Cross-origin iframe, can't access content
-                          console.log('Cross-origin iframe, using alternative download prevention');
-                      }
-                  }
-              }
-              
-              // Prevent all possible download methods
-              function preventAllDownloads() {
-                  // Prevent right-click context menu
-                  document.addEventListener('contextmenu', function(e) {
-                      e.preventDefault();
-                      showStatus('❌ Right-click disabled for security', 'error');
-                      return false;
-                  });
-                  
-                  // Prevent keyboard shortcuts
-                  document.addEventListener('keydown', function(e) {
-                      if (e.ctrlKey && (e.key === 's' || e.key === 'S')) {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          showStatus('❌ Download not allowed!', 'error');
-                          return false;
-                      }
-                      if (e.ctrlKey && (e.key === 'c' || e.key === 'C')) {
-                          e.preventDefault();
-                          return false;
-                      }
-                      if (e.ctrlKey && (e.key === 'a' || e.key === 'A')) {
-                          e.preventDefault();
-                          return false;
-                      }
-                  });
-                  
-                  // Prevent drag and drop
-                  document.addEventListener('dragstart', function(e) {
-                      e.preventDefault();
-                      return false;
-                  });
-                  
-                  document.addEventListener('drop', function(e) {
-                      e.preventDefault();
-                      return false;
-                  });
-                  
-                  // Prevent text selection
-                  document.addEventListener('selectstart', function(e) {
-                      e.preventDefault();
-                      return false;
-                  });
-                  
-                  // Block any download attempts
-                  window.addEventListener('beforeunload', function(e) {
-                      e.preventDefault();
-                      return false;
-                  });
-                  
-                  // Disable PDF iframe download functionality
-                  const pdfIframe = document.getElementById('pdf-iframe');
-                  if (pdfIframe) {
-                      pdfIframe.addEventListener('load', function() {
-                          try {
-                              const iframeDoc = pdfIframe.contentDocument || pdfIframe.contentWindow.document;
-                              if (iframeDoc) {
-                                  // Disable all download-related elements
-                                  const downloadElements = iframeDoc.querySelectorAll('a[download], button[download]');
-                                  downloadElements.forEach(el => {
-                                      el.style.display = 'none';
-                                      el.disabled = true;
-                                  });
-                                  
-                                  // Override download functions
-                                  if (iframeDoc.defaultView) {
-                                      iframeDoc.defaultView.open = function() { return null; };
-                                      iframeDoc.defaultView.print = function() { return false; };
-                                  }
-                              }
-                          } catch (e) {
-                              console.log('Cross-origin iframe, using alternative download prevention');
-                          }
-                      });
-                  }
-                  
-                  console.log('Download prevention enabled');
-                  
-                  // Monitor and disable PDF controls continuously
-                  setInterval(function() {
-                      disablePDFControls();
-                  }, 1000);
-              }
-              
-              // Function to disable PDF viewer controls
-              function disablePDFControls() {
-                  const pdfIframe = document.getElementById('pdf-iframe');
-                  if (pdfIframe) {
-                      try {
-                          const iframeDoc = pdfIframe.contentDocument || pdfIframe.contentWindow.document;
-                          if (iframeDoc) {
-                              // Hide download buttons, print buttons, etc.
-                              const controls = iframeDoc.querySelectorAll('button, a, [role="button"]');
-                              controls.forEach(control => {
-                                  const text = control.textContent || control.title || '';
-                                  if (text.toLowerCase().includes('download') || 
-                                      text.toLowerCase().includes('save') || 
-                                      text.toLowerCase().includes('print') ||
-                                      text.toLowerCase().includes('export')) {
-                                      control.style.display = 'none';
-                                      control.disabled = true;
-                                      control.onclick = function(e) { e.preventDefault(); return false; };
-                                  }
-                              });
-                          }
-                      } catch (e) {
-                          // Cross-origin iframe, can't access content
-                      }
-                  }
-              }
-              
-              // Function to disable PDF download controls specifically
-              function disablePDFDownloadControls() {
-                  // Find the iframe that was just created
-                  const iframe = document.querySelector('#pdf-content iframe');
-                  if (iframe) {
-                      iframe.addEventListener('load', function() {
-                          try {
-                              const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
-                              if (iframeDoc) {
-                                  // Disable all download-related elements
-                                  const downloadElements = iframeDoc.querySelectorAll('a[download], button[download]');
-                                  downloadElements.forEach(el => {
-                                      el.style.display = 'none';
-                                      el.disabled = true;
-                                  });
-                                  
-                                  // Override download functions
-                                  if (iframeDoc.defaultView) {
-                                      iframeDoc.defaultView.open = function() { return null; };
-                                      iframeDoc.defaultView.print = function() { return false; };
-                                  }
-                                  
-                                  // Monitor for new controls
-                                  setInterval(function() {
-                                      const controls = iframeDoc.querySelectorAll('button, a, [role="button"]');
-                                      controls.forEach(control => {
-                                          const text = control.textContent || control.title || '';
-                                          if (text.toLowerCase().includes('download') || 
-                                              text.toLowerCase().includes('save') || 
-                                              text.toLowerCase().includes('print') ||
-                                              text.toLowerCase().includes('export')) {
-                                              control.style.display = 'none';
-                                              control.disabled = true;
-                                              control.onclick = function(e) { e.preventDefault(); return false; };
-                                          }
-                                      });
-                                  }, 500);
-                              }
-                          } catch (e) {
-                              console.log('Cross-origin iframe, using alternative download prevention');
-                          }
-                      });
-                  }
+                  }, 4000);
               }
           </script>
       </body>
       </html>
     `);
   } catch (err) {
-    res.status(403).send(`
-      <!DOCTYPE html>
-      <html>
-      <head>
-          <title>Access Denied</title>
-          <style>
-              body { font-family: Arial, sans-serif; text-align: center; margin: 50px; }
-              .error { color: red; }
-          </style>
-      </head>
-      <body>
-          <h1 class="error">Access Denied</h1>
-          <p>Invalid or expired link.</p>
-      </body>
-      </html>
-    `);
+    res.status(403).send("Access denied");
   }
 });
+
+
+// Route for recipients to view and edit PDF after Google authentication
+// app.get("/pdf-viewer", (req, res) => {
+//   const { token } = req.query;
+
+//   try {
+//     const decoded = jwt.verify(token, SECRET_KEY);
+//     const tokenEmail = decoded.email;
+
+//     // Check if user is authorized recipient with matching token
+//     const isAuthorizedRecipient = AUTHORIZED_RECIPIENTS.has(tokenEmail) && 
+//                                  AUTHORIZED_RECIPIENTS.get(tokenEmail).token === token &&
+//                                  AUTHORIZED_RECIPIENTS.get(tokenEmail).canEdit;
+
+//     if (!isAuthorizedRecipient) {
+//       return res.status(403).send(`
+//         <!DOCTYPE html>
+//         <html>
+//         <head>
+//             <title>Access Denied</title>
+//             <style>
+//                 body { font-family: Arial, sans-serif; text-align: center; margin: 50px; }
+//                 .error { color: red; }
+//             </style>
+//         </head>
+//         <body>
+//             <h1 class="error">Access Denied</h1>
+//             <p>You are not authorized to access this PDF.</p>
+//         </body>
+//         </html>
+//       `);
+//     }
+
+//     const filePath = path.join(__dirname, "resume.pdf");
+
+//     if (!fs.existsSync(filePath)) {
+//       return res.status(404).send("File not found.");
+//     }
+
+//     // Send the PDF viewer page with editing capabilities for recipients
+//     res.send(`
+//       <!DOCTYPE html>
+//       <html>
+//       <head>
+//           <title>Secure PDF Viewer & Editor - Recipient Access</title>
+//           <style>
+//               body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }
+//               .container { max-width: 1200px; margin: 0 auto; background: white; border-radius: 10px; padding: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+//               .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 20px; border-bottom: 1px solid #eee; }
+//               .pdf-container { width: 100%; height: 600px; border: 1px solid #ddd; border-radius: 5px; position: relative; }
+//               .pdf-iframe { width: 100%; height: 100%; border: none; }
+//               button { background: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; margin: 5px; }
+//               button:hover { background: #0056b3; }
+//               .security-notice { background: #fff3cd; color: #856404; padding: 15px; border-radius: 5px; margin: 20px 0; border: 1px solid #ffeaa7; }
+//               .recipient-badge { background: #17a2b8; color: white; padding: 5px 10px; border-radius: 15px; font-size: 12px; }
+//               .text-input { position: absolute; display: none; padding: 5px; border: 2px solid #007bff; border-radius: 3px; background: white; z-index: 1000; }
+//               .status { margin: 20px 0; padding: 15px; border-radius: 8px; font-weight: bold; display: none; }
+//               .success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+//               .error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+//           </style>
+//       </head>
+//       <body>
+//           <div class="container">
+//               <div class="header">
+//                   <h1>🔒 Secure PDF Viewer & Editor</h1>
+//                   <div>
+//                       <span>Welcome, ${tokenEmail}</span>
+//                       <span class="recipient-badge">Recipient - Can Edit</span>
+//                   </div>
+//               </div>
+              
+//               <div class="security-notice">
+//                   <strong>🔐 Security Notice:</strong> PDF content is embedded directly below. You can view and edit by clicking anywhere on the PDF, but downloads are completely disabled for security.
+//               </div>
+              
+//               <div class="pdf-container">
+//                   <div id="pdf-content" style="width: 100%; height: 100%; position: relative; overflow: auto; border: 1px solid #ddd; border-radius: 5px; background: white;">
+//                       <div id="pdf-loading" style="text-align: center; padding: 50px; color: #666;">
+//                           <div style="font-size: 24px; margin-bottom: 20px;">📄</div>
+//                           <div>Loading PDF content...</div>
+//                       </div>
+//                   </div>
+//                   <input type="text" id="textInput" class="text-input" placeholder="Type your text here...">
+//               </div>
+              
+//               <div style="margin-top: 20px; text-align: center;">
+//                   <button onclick="saveChanges()">💾 Save Changes</button>
+//                   <button onclick="uploadToOwner()" id="uploadBtn" disabled style="opacity: 0.5;">📤 Send to Owner</button>
+//               </div>
+              
+//               <div id="status"></div>
+//           </div>
+          
+//           <script>
+//               let editedContent = null;
+//               let textElements = [];
+              
+//               // Function called when PDF is loaded
+//               function pdfLoaded() {
+//                   showStatus('📄 PDF loaded successfully! Click anywhere on the PDF to add text.', 'success');
+                  
+//                   // Enable PDF editing immediately
+//                   enablePDFEditing();
+//               }
+              
+//               // Enable PDF editing functionality
+//               function enablePDFEditing() {
+//                   // Wait for PDF content to load, then enable editing
+//                   setTimeout(function() {
+//                       const iframe = document.querySelector('#pdf-content iframe');
+//                       if (iframe) {
+//                           // Add click event listener to the iframe itself
+//                           iframe.addEventListener('click', handlePDFClick);
+                          
+//                           // Also try to add to PDF content if accessible
+//                           iframe.addEventListener('load', function() {
+//                               try {
+//                                   const pdfDoc = iframe.contentDocument || iframe.contentWindow.document;
+//                                   if (pdfDoc) {
+//                                       pdfDoc.addEventListener('click', handlePDFClick);
+//                                       pdfDoc.addEventListener('contextmenu', e => e.preventDefault());
+//                                       pdfDoc.addEventListener('keydown', preventDownloadShortcuts);
+//                                   }
+//                               } catch (e) {
+//                                   console.log('Cross-origin PDF, using iframe click events');
+//                               }
+//                           });
+//                       }
+//                   }, 1000); // Wait for PDF content to load
+                  
+//                   // Add global click prevention for downloads
+//                   document.addEventListener('contextmenu', e => e.preventDefault());
+//                   document.addEventListener('keydown', preventDownloadShortcuts);
+//               }
+              
+//               // Prevent download shortcuts
+//               function preventDownloadShortcuts(e) {
+//                   if (e.ctrlKey && (e.key === 's' || e.key === 'S')) {
+//                       e.preventDefault();
+//                       showStatus('❌ Download not allowed!', 'error');
+//                       return false;
+//                   }
+//                   if (e.ctrlKey && (e.key === 'c' || e.key === 'C')) {
+//                       e.preventDefault();
+//                       return false;
+//                   }
+//                   if (e.ctrlKey && (e.key === 'a' || e.key === 'A')) {
+//                   e.preventDefault();
+//                       return false;
+//                   }
+//               }
+              
+//               // Handle clicks on PDF for text editing
+//               function handlePDFClick(event) {
+//                   event.preventDefault();
+                  
+//                   const textInput = document.getElementById('textInput');
+//                   if (textInput) {
+//                       // Position text input at click location
+//                       const rect = event.currentTarget.getBoundingClientRect();
+//                       const x = event.clientX - rect.left;
+//                       const y = event.clientY - rect.top;
+                      
+//                       textInput.style.display = 'block';
+//                       textInput.style.left = (event.clientX - 50) + 'px';
+//                       textInput.style.top = (event.clientY - 25) + 'px';
+//                       textInput.focus();
+//                       textInput.placeholder = 'Type your text here...';
+                      
+//                       // Store click position for text placement
+//                       textInput.dataset.x = x;
+//                       textInput.dataset.y = y;
+                      
+//                       console.log('PDF clicked at:', x, y);
+//                   }
+//               }
+              
+//               // Handle clicks on the PDF iframe for text editing
+//               function handleIframeClick(event) {
+//                   const textInput = document.getElementById('textInput');
+//                   if (textInput) {
+//                       // Position text input at click location relative to the iframe
+//                       const iframe = document.querySelector('#pdf-content iframe');
+//                       if (iframe) {
+//                           const iframeRect = iframe.getBoundingClientRect();
+//                           const x = event.clientX - iframeRect.left;
+//                           const y = event.clientY - iframeRect.top;
+                          
+//                           textInput.style.display = 'block';
+//                           textInput.style.left = (event.clientX - 50) + 'px';
+//                           textInput.style.top = (event.clientY - 25) + 'px';
+//                           textInput.focus();
+//                           textInput.placeholder = 'Type your text here...';
+                          
+//                           // Store click position for text placement
+//                           textInput.dataset.x = x;
+//                           textInput.dataset.y = y;
+                          
+//                           console.log('PDF iframe clicked at:', x, y);
+//                       }
+//                   }
+//               }
+              
+//               // Save changes function
+//               function saveChanges() {
+//                   if (textElements.length === 0) {
+//                       showStatus('❌ No text has been added yet. Click on the PDF to add text first.', 'error');
+//                       return;
+//                   }
+                  
+//                   editedContent = 'saved_' + Date.now();
+//                   showStatus('💾 Changes saved successfully! You can now send the edited PDF to the owner.', 'success');
+                  
+//                   // Enable upload button
+//                   const uploadBtn = document.getElementById('uploadBtn');
+//                   if (uploadBtn) {
+//                       uploadBtn.disabled = false;
+//                       uploadBtn.style.opacity = '1';
+//                   }
+                  
+//                   console.log('Changes saved. Text elements:', textElements);
+//               }
+              
+//               // Upload to owner function
+//               function uploadToOwner() {
+//                   if (!editedContent) {
+//                       showStatus('❌ Please save your changes first before sending!', 'error');
+//                       return;
+//                   }
+                  
+//                   showStatus('📤 Sending edited PDF to owner...', 'success');
+                  
+//                   // Create a temporary PDF blob and send to owner
+//                   const pdfBlob = new Blob(['Edited PDF content with text: ' + textElements.join(', ')], { type: 'application/pdf' });
+//                   const formData = new FormData();
+//                   formData.append('pdf', pdfBlob, 'edited-resume.pdf');
+//                   formData.append('token', '${token}');
+//                   formData.append('recipientEmail', '${tokenEmail}');
+                  
+//                   fetch('/send-back', {
+//                           method: 'POST',
+//                           body: formData
+//                   })
+//                   .then(response => response.json())
+//                   .then(result => {
+//                       if (result.success) {
+//                           showStatus('✅ PDF sent to owner successfully!', 'success');
+//                           // Clear the form
+//                           textElements = [];
+//                           editedContent = null;
+//                       } else {
+//                           showStatus('❌ Error: ' + result.error, 'error');
+//                       }
+//                   })
+//                   .catch(error => {
+//                       showStatus('❌ Network error: ' + error.message, 'error');
+//                   });
+//               }
+              
+//               // Show status messages
+//               function showStatus(message, type) {
+//                   const statusDiv = document.getElementById('status');
+//                   statusDiv.innerHTML = '<div class="status ' + type + '">' + message + '</div>';
+//                   statusDiv.style.display = 'block';
+                  
+//                   setTimeout(() => {
+//                       statusDiv.style.display = 'none';
+//                   }, 5000);
+                  
+//                   console.log('Status:', message);
+//               }
+              
+//               // Handle text input for adding text
+//               document.getElementById('textInput').addEventListener('keypress', function(e) {
+//                   if (e.key === 'Enter') {
+//                       addTextToPDF();
+//                   }
+//               });
+              
+//               // Handle text input blur (click outside)
+//               document.getElementById('textInput').addEventListener('blur', function() {
+//                   addTextToPDF();
+//               });
+              
+//               // Add text to PDF
+//               function addTextToPDF() {
+//                   const textInput = document.getElementById('textInput');
+//                   const text = textInput.value.trim();
+                  
+//                   if (text) {
+//                       // Store the added text
+//                       textElements.push(text);
+                      
+//                       // Show success message
+//                       showStatus('➕ Text added: ' + text, 'success');
+                      
+//                       // Create visual text element on PDF (simulated)
+//                       createTextElement(text, textInput.dataset.x, textInput.dataset.y);
+                      
+//                       // Mark as edited
+//                       editedContent = 'edited_' + Date.now();
+//                   }
+                  
+//                   // Hide input
+//                   textInput.style.display = 'none';
+//                   textInput.value = '';
+//                   textInput.placeholder = 'Type your text here...';
+//               }
+              
+//               // Create visual text element (simulated)
+//               function createTextElement(text, x, y) {
+//                   // In a real implementation, this would add text to the PDF
+//                   // For now, we'll just track the text elements
+//                   console.log('Text added:', text, 'at position:', x, y);
+//               }
+              
+//               // Hide text input when clicking outside
+//               document.addEventListener('click', function(e) {
+//                   if (!e.target.classList.contains('text-input')) {
+//                       const textInput = document.getElementById('textInput');
+//                       if (textInput && textInput.style.display !== 'none') {
+//                           textInput.style.display = 'none';
+//                       }
+//                   }
+//               });
+              
+//               // Initialize when page loads
+//               document.addEventListener('DOMContentLoaded', function() {
+//                   console.log('PDF Editor initialized');
+//                   showStatus('🎯 PDF Editor ready! Loading PDF securely...', 'success');
+                  
+//                   // Load PDF securely without browser controls
+//                   loadSecurePDF();
+                  
+//                   // Add additional download prevention
+//                   preventAllDownloads();
+//               });
+              
+//               // Load PDF securely and enable editing
+//               function loadSecurePDF() {
+//                   const pdfContent = document.getElementById('pdf-content');
+                  
+//                   // Load PDF content directly into the container
+//                   loadPDFContent();
+                  
+//                   // Enable PDF editing functionality
+//                   enablePDFEditing();
+                  
+//                   // Add click functionality for text editing
+//                   pdfContent.addEventListener('click', handlePDFClick);
+                  
+//                   console.log('Secure PDF viewer loaded - PDF content embedded directly');
+//               }
+              
+//               // Load PDF content directly into the page
+//               function loadPDFContent() {
+//                   const pdfContent = document.getElementById('pdf-content');
+                  
+//                   // Create a secure PDF viewer using PDF.js or embed directly
+//                   pdfContent.innerHTML = '<div style="width: 100%; height: 100%; position: relative;">' +
+//                       '<iframe src="/pdf-content?token=${token}" ' +
+//                               'style="width: 100%; height: 100%; border: none; pointer-events: auto;" ' +
+//                               'frameborder="0" ' +
+//                               'onload="onPDFLoaded()">' +
+//                       '</iframe>' +
+//                       '<div id="pdf-overlay" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10;"></div>' +
+//                       '</div>';
+//               }
+              
+//               // Called when PDF iframe loads
+//               function onPDFLoaded() {
+//                   console.log('PDF loaded successfully');
+//                   showStatus('📄 PDF loaded! Click anywhere to add text.', 'success');
+                  
+//                   // Disable download controls in the PDF
+//                   disablePDFDownloadControls();
+//               }
+              
+//               // Function to disable PDF download controls
+//               function disablePDFDownloadControls() {
+//                   const iframe = document.querySelector('#pdf-content iframe');
+//                   if (iframe) {
+//                       try {
+//                           const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+//                           if (iframeDoc) {
+//                               // Hide download buttons, print buttons, etc.
+//                               const controls = iframeDoc.querySelectorAll('button, a, [role="button"]');
+//                               controls.forEach(control => {
+//                                   const text = control.textContent || control.title || '';
+//                                   if (text.toLowerCase().includes('download') || 
+//                                       text.toLowerCase().includes('save') || 
+//                                       text.toLowerCase().includes('print') ||
+//                                       text.toLowerCase().includes('export')) {
+//                                       control.style.display = 'none';
+//                                       control.disabled = true;
+//                                       control.onclick = function(e) { e.preventDefault(); return false; };
+//                                   }
+//                               });
+//                           }
+//                       } catch (e) {
+//                           // Cross-origin iframe, can't access content
+//                           console.log('Cross-origin iframe, using alternative download prevention');
+//                       }
+//                   }
+//               }
+              
+//               // Prevent all possible download methods
+//               function preventAllDownloads() {
+//                   // Prevent right-click context menu
+//                   document.addEventListener('contextmenu', function(e) {
+//                       e.preventDefault();
+//                       showStatus('❌ Right-click disabled for security', 'error');
+//                       return false;
+//                   });
+                  
+//                   // Prevent keyboard shortcuts
+//                   document.addEventListener('keydown', function(e) {
+//                       if (e.ctrlKey && (e.key === 's' || e.key === 'S')) {
+//                           e.preventDefault();
+//                           e.stopPropagation();
+//                           showStatus('❌ Download not allowed!', 'error');
+//                           return false;
+//                       }
+//                       if (e.ctrlKey && (e.key === 'c' || e.key === 'C')) {
+//                           e.preventDefault();
+//                           return false;
+//                       }
+//                       if (e.ctrlKey && (e.key === 'a' || e.key === 'A')) {
+//                           e.preventDefault();
+//                           return false;
+//                       }
+//                   });
+                  
+//                   // Prevent drag and drop
+//                   document.addEventListener('dragstart', function(e) {
+//                       e.preventDefault();
+//                       return false;
+//                   });
+                  
+//                   document.addEventListener('drop', function(e) {
+//                       e.preventDefault();
+//                       return false;
+//                   });
+                  
+//                   // Prevent text selection
+//                   document.addEventListener('selectstart', function(e) {
+//                       e.preventDefault();
+//                       return false;
+//                   });
+                  
+//                   // Block any download attempts
+//                   window.addEventListener('beforeunload', function(e) {
+//                       e.preventDefault();
+//                       return false;
+//                   });
+                  
+//                   // Disable PDF iframe download functionality
+//                   const pdfIframe = document.getElementById('pdf-iframe');
+//                   if (pdfIframe) {
+//                       pdfIframe.addEventListener('load', function() {
+//                           try {
+//                               const iframeDoc = pdfIframe.contentDocument || pdfIframe.contentWindow.document;
+//                               if (iframeDoc) {
+//                                   // Disable all download-related elements
+//                                   const downloadElements = iframeDoc.querySelectorAll('a[download], button[download]');
+//                                   downloadElements.forEach(el => {
+//                                       el.style.display = 'none';
+//                                       el.disabled = true;
+//                                   });
+                                  
+//                                   // Override download functions
+//                                   if (iframeDoc.defaultView) {
+//                                       iframeDoc.defaultView.open = function() { return null; };
+//                                       iframeDoc.defaultView.print = function() { return false; };
+//                                   }
+//                               }
+//                           } catch (e) {
+//                               console.log('Cross-origin iframe, using alternative download prevention');
+//                           }
+//                       });
+//                   }
+                  
+//                   console.log('Download prevention enabled');
+                  
+//                   // Monitor and disable PDF controls continuously
+//                   setInterval(function() {
+//                       disablePDFControls();
+//                   }, 1000);
+//               }
+              
+//               // Function to disable PDF viewer controls
+//               function disablePDFControls() {
+//                   const pdfIframe = document.getElementById('pdf-iframe');
+//                   if (pdfIframe) {
+//                       try {
+//                           const iframeDoc = pdfIframe.contentDocument || pdfIframe.contentWindow.document;
+//                           if (iframeDoc) {
+//                               // Hide download buttons, print buttons, etc.
+//                               const controls = iframeDoc.querySelectorAll('button, a, [role="button"]');
+//                               controls.forEach(control => {
+//                                   const text = control.textContent || control.title || '';
+//                                   if (text.toLowerCase().includes('download') || 
+//                                       text.toLowerCase().includes('save') || 
+//                                       text.toLowerCase().includes('print') ||
+//                                       text.toLowerCase().includes('export')) {
+//                                       control.style.display = 'none';
+//                                       control.disabled = true;
+//                                       control.onclick = function(e) { e.preventDefault(); return false; };
+//                                   }
+//                               });
+//                           }
+//                       } catch (e) {
+//                           // Cross-origin iframe, can't access content
+//                       }
+//                   }
+//               }
+              
+//               // Function to disable PDF download controls specifically
+//               function disablePDFDownloadControls() {
+//                   // Find the iframe that was just created
+//                   const iframe = document.querySelector('#pdf-content iframe');
+//                   if (iframe) {
+//                       iframe.addEventListener('load', function() {
+//                           try {
+//                               const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+//                               if (iframeDoc) {
+//                                   // Disable all download-related elements
+//                                   const downloadElements = iframeDoc.querySelectorAll('a[download], button[download]');
+//                                   downloadElements.forEach(el => {
+//                                       el.style.display = 'none';
+//                                       el.disabled = true;
+//                                   });
+                                  
+//                                   // Override download functions
+//                                   if (iframeDoc.defaultView) {
+//                                       iframeDoc.defaultView.open = function() { return null; };
+//                                       iframeDoc.defaultView.print = function() { return false; };
+//                                   }
+                                  
+//                                   // Monitor for new controls
+//                                   setInterval(function() {
+//                                       const controls = iframeDoc.querySelectorAll('button, a, [role="button"]');
+//                                       controls.forEach(control => {
+//                                           const text = control.textContent || control.title || '';
+//                                           if (text.toLowerCase().includes('download') || 
+//                                               text.toLowerCase().includes('save') || 
+//                                               text.toLowerCase().includes('print') ||
+//                                               text.toLowerCase().includes('export')) {
+//                                               control.style.display = 'none';
+//                                               control.disabled = true;
+//                                               control.onclick = function(e) { e.preventDefault(); return false; };
+//                                           }
+//                                       });
+//                                   }, 500);
+//                               }
+//                           } catch (e) {
+//                               console.log('Cross-origin iframe, using alternative download prevention');
+//                           }
+//                       });
+//                   }
+//               }
+//           </script>
+//       </body>
+//       </html>
+//   `);
+//   } catch (err) {
+//     res.status(403).send(`
+//       <!DOCTYPE html>
+//       <html>
+//       <head>
+//           <title>Access Denied</title>
+//           <style>
+//               body { font-family: Arial, sans-serif; text-align: center; margin: 50px; }
+//               .error { color: red; }
+//           </style>
+//       </head>
+//       <body>
+//           <h1 class="error">Access Denied</h1>
+//           <p>Invalid or expired link.</p>
+//       </body>
+//       </html>
+//     `);
+//   }
+// });
+
+
+
 
 // Route to serve PDF content (embedded in browser - STRICTLY prevent downloads for recipients)
 app.get("/pdf-content", (req, res) => {
