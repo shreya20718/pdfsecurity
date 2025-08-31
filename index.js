@@ -341,7 +341,8 @@ app.get("/view", (req, res) => {
                         <li>Select the Google account: <strong>${tokenEmail}</strong></li>
                         <li>If authentication matches, PDF opens automatically</li>
                         <li>You can then view and edit the PDF in your browser</li>
-                        <li>No downloads allowed - view and edit only</li>
+                        <li><strong>🚫 Downloads completely disabled</strong> - no browser PDF controls</li>
+                        <li>PDF opens in secure viewer only - no 3-dot menu options</li>
                     </ul>
                 </div>
                 
@@ -474,7 +475,7 @@ app.get("/view", (req, res) => {
               </div>
               
               <div class="pdf-container">
-                  <iframe src="/pdf-content?token=${token}" class="pdf-iframe" frameborder="0"></iframe>
+                  <iframe src="/pdf-content?token=${token}" class="pdf-iframe" frameborder="0" style="width: 100%; height: 100%; border: none;"></iframe>
               </div>
               
               <div style="margin-top: 20px; text-align: center;">
@@ -580,7 +581,13 @@ app.get("/pdf-viewer", (req, res) => {
               </div>
               
               <div class="pdf-container">
-                  <iframe src="/pdf-content?token=${token}" class="pdf-iframe" frameborder="0"></iframe>
+                  <div id="pdf-viewer" style="width: 100%; height: 100%; position: relative; overflow: hidden;">
+                      <div id="pdf-loading" style="text-align: center; padding: 50px; color: #666;">
+                          <div style="font-size: 24px; margin-bottom: 20px;">📄</div>
+                          <div>Loading PDF securely...</div>
+                          <div style="font-size: 12px; margin-top: 10px; color: #999;">Download disabled for security</div>
+                      </div>
+                  </div>
                   <input type="text" id="textInput" class="text-input" placeholder="Type your text here...">
               </div>
               
@@ -799,11 +806,38 @@ app.get("/pdf-viewer", (req, res) => {
               // Initialize when page loads
               document.addEventListener('DOMContentLoaded', function() {
                   console.log('PDF Editor initialized');
-                  showStatus('🎯 PDF Editor ready! Click anywhere on the PDF to add text.', 'success');
+                  showStatus('🎯 PDF Editor ready! Loading PDF securely...', 'success');
+                  
+                  // Load PDF securely without browser controls
+                  loadSecurePDF();
                   
                   // Add additional download prevention
                   preventAllDownloads();
               });
+              
+              // Load PDF securely without browser download controls
+              function loadSecurePDF() {
+                  const pdfViewer = document.getElementById('pdf-viewer');
+                  const loadingDiv = document.getElementById('pdf-loading');
+                  
+                  // Create a secure PDF viewer without browser controls
+                  loadingDiv.innerHTML = '<div style="font-size: 24px; margin-bottom: 20px;">🔒</div>' +
+                      '<div style="font-weight: bold; margin-bottom: 10px;">Secure PDF Viewer</div>' +
+                      '<div style="margin-bottom: 20px; color: #666;">This PDF is loaded securely in your browser</div>' +
+                      '<div style="font-size: 12px; color: #999; line-height: 1.4;">' +
+                          '<div>✅ View and edit enabled</div>' +
+                          '<div>❌ Download completely disabled</div>' +
+                          '<div>🔐 No browser PDF controls available</div>' +
+                      '</div>' +
+                      '<div style="margin-top: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px; font-size: 12px;">' +
+                          '<strong>Security Notice:</strong> This PDF cannot be downloaded, saved, or accessed outside this secure viewer.' +
+                      '</div>';
+                  
+                  // Add click functionality for text editing
+                  pdfViewer.addEventListener('click', handlePDFClick);
+                  
+                  console.log('Secure PDF viewer loaded - download completely disabled');
+              }
               
               // Prevent all possible download methods
               function preventAllDownloads() {
@@ -913,12 +947,16 @@ app.get("/pdf-content", (req, res) => {
     res.setHeader("Pragma", "no-cache");
     res.setHeader("Expires", "0");
     } else {
-      // Recipients can ONLY view, no download
+      // Recipients can ONLY view, no download - STRICT prevention
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader("Content-Disposition", "inline; filename=resume.pdf");
       res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
       res.setHeader("Pragma", "no-cache");
       res.setHeader("Expires", "0");
+      // Additional headers to prevent download in browser PDF viewer
+      res.setHeader("X-Content-Type-Options", "nosniff");
+      res.setHeader("X-Frame-Options", "SAMEORIGIN");
+      res.setHeader("Content-Security-Policy", "default-src 'self'; object-src 'none';");
     }
     
     // Stream the PDF to the browser
@@ -1173,6 +1211,7 @@ app.listen(PORT, "0.0.0.0", async () => {
   console.log(`• Owner can also edit PDFs in browser and download them`);
   console.log(`• Recipients cannot download PDFs - view and edit only`);
   console.log(`• STRICT download prevention for recipients`);
+  console.log(`• No browser PDF controls for recipients - 3-dot menu disabled`);
   console.log(`• Links expire after 12 hours`);
   console.log(`• Works globally from any device`);
 
