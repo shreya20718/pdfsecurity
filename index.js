@@ -114,7 +114,7 @@ app.get("/check-recipient", (req, res) => {
   res.send({ authorized: false, role: "unauthorized" });
 });
 
-
+// Fixed /edit-pdf endpoint
 app.post("/edit-pdf", upload.single('pdf'), async (req, res) => {
   const { token, editType, editData } = req.body;
  
@@ -132,34 +132,49 @@ app.post("/edit-pdf", upload.single('pdf'), async (req, res) => {
       return res.status(403).json({ success: false, error: "Unauthorized" });
     }
 
-    // Load the original PDF
+    // Check if resume.pdf exists
     const originalPdfPath = path.join(__dirname, "resume.pdf");
+    if (!fs.existsSync(originalPdfPath)) {
+      console.error("resume.pdf not found at:", originalPdfPath);
+      return res.status(404).json({ success: false, error: "PDF file not found" });
+    }
+
+    // Load the original PDF
     const existingPdfBytes = fs.readFileSync(originalPdfPath);
    
     // Create a PDFDocument
     const pdfDoc = await PDFDocument.load(existingPdfBytes);
     const helveticaFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
-    const helveticaBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
    
     // Parse the edit data
-    const edits = JSON.parse(editData);
+    let edits;
+    try {
+      edits = JSON.parse(editData);
+    } catch (parseError) {
+      console.error("Error parsing editData:", parseError);
+      return res.status(400).json({ success: false, error: "Invalid edit data format" });
+    }
    
     console.log(`Processing ${edits.length} edits for ${tokenEmail}`);
    
-    // Get the first page (you can extend this for multi-page support)
+    // Get the first page
     const pages = pdfDoc.getPages();
+    if (pages.length === 0) {
+      return res.status(400).json({ success: false, error: "PDF has no pages" });
+    }
+    
     const page = pages[0];
     const { width, height } = page.getSize();
+    console.log(`PDF dimensions: ${width} x ${height}`);
    
     // Apply edits based on type
     for (const edit of edits) {
       try {
         switch (edit.type) {
           case 'text':
-            // Add new text or overlay text (for modifications)
             page.drawText(edit.text || '', {
-              x: Math.max(0, edit.x || 0),
-              y: Math.max(0, height - (edit.y || 0)), // PDF coordinates are from bottom-left
+              x: Math.max(0, Math.min(width - 50, edit.x || 0)),
+              y: Math.max(0, Math.min(height - 20, height - (edit.y || 0))),
               size: Math.max(8, Math.min(72, edit.fontSize || 12)),
               font: helveticaFont,
               color: rgb(
@@ -168,17 +183,17 @@ app.post("/edit-pdf", upload.single('pdf'), async (req, res) => {
                 Math.max(0, Math.min(1, edit.color?.b || 0))
               ),
             });
+            console.log(`Applied text edit: "${edit.text}" at (${edit.x}, ${edit.y})`);
             break;
            
           case 'textEdit':
-            // For text edits, we'll overlay the new text
-            // First, we could try to "white out" the original text area (optional)
-            if (edit.oldText) {
-              // Draw a white rectangle to cover old text (optional)
+            // Draw white rectangle to cover old text
+            if (edit.oldText && edit.fontSize) {
+              const textWidth = (edit.oldText.length * (edit.fontSize || 12) * 0.6);
               page.drawRectangle({
-                x: Math.max(0, edit.x || 0) - 2,
-                y: Math.max(0, height - (edit.y || 0) - (edit.fontSize || 12)) - 2,
-                width: (edit.oldText.length * (edit.fontSize || 12) * 0.6) + 4,
+                x: Math.max(0, (edit.x || 0) - 2),
+                y: Math.max(0, height - (edit.y || 0) - (edit.fontSize || 12) - 2),
+                width: textWidth + 4,
                 height: (edit.fontSize || 12) + 4,
                 color: rgb(1, 1, 1), // White background
               });
@@ -186,58 +201,40 @@ app.post("/edit-pdf", upload.single('pdf'), async (req, res) => {
            
             // Draw the new text
             page.drawText(edit.newText || '', {
-              x: Math.max(0, edit.x || 0),
-              y: Math.max(0, height - (edit.y || 0)),
+              x: Math.max(0, Math.min(width - 50, edit.x || 0)),
+              y: Math.max(0, Math.min(height - 20, height - (edit.y || 0))),
               size: Math.max(8, Math.min(72, edit.fontSize || 12)),
               font: helveticaFont,
-              color: rgb(0, 0, 0), // Black text for edits
+              color: rgb(0, 0, 0),
             });
-            break;
-           
-          case 'newText':
-            // Add completely new text
-            page.drawText(edit.text || '', {
-              x: Math.max(0, edit.x || 0),
-              y: Math.max(0, height - (edit.y || 0)),
-              size: Math.max(8, Math.min(72, edit.fontSize || 12)),
-              font: helveticaFont,
-              color: rgb(
-                Math.max(0, Math.min(1, edit.color?.r || 0)),
-                Math.max(0, Math.min(1, edit.color?.g || 0)),
-                Math.max(0, Math.min(1, edit.color?.b || 0))
-              ),
-            });
+            console.log(`Applied text edit: "${edit.oldText}" -> "${edit.newText}"`);
             break;
            
           case 'rectangle':
             page.drawRectangle({
               x: Math.max(0, edit.x || 0),
               y: Math.max(0, height - (edit.y || 0) - (edit.height || 0)),
-              width: Math.max(1, edit.width || 50),
-              height: Math.max(1, edit.height || 30),
+              width: Math.max(1, Math.min(width, edit.width || 50)),
+              height: Math.max(1, Math.min(height, edit.height || 30)),
               borderColor: rgb(
                 Math.max(0, Math.min(1, edit.borderColor?.r || 0)),
                 Math.max(0, Math.min(1, edit.borderColor?.g || 0)),
                 Math.max(0, Math.min(1, edit.borderColor?.b || 0))
               ),
               borderWidth: Math.max(0.5, Math.min(10, edit.borderWidth || 1)),
-              color: edit.fillColor ? rgb(
-                Math.max(0, Math.min(1, edit.fillColor.r)),
-                Math.max(0, Math.min(1, edit.fillColor.g)),
-                Math.max(0, Math.min(1, edit.fillColor.b))
-              ) : undefined,
             });
+            console.log(`Applied rectangle at (${edit.x}, ${edit.y})`);
             break;
            
           case 'line':
             page.drawLine({
               start: {
-                x: Math.max(0, edit.startX || 0),
-                y: Math.max(0, height - (edit.startY || 0))
+                x: Math.max(0, Math.min(width, edit.startX || 0)),
+                y: Math.max(0, Math.min(height, height - (edit.startY || 0)))
               },
               end: {
-                x: Math.max(0, edit.endX || 0),
-                y: Math.max(0, height - (edit.endY || 0))
+                x: Math.max(0, Math.min(width, edit.endX || 0)),
+                y: Math.max(0, Math.min(height, height - (edit.endY || 0)))
               },
               thickness: Math.max(0.5, Math.min(10, edit.thickness || 1)),
               color: rgb(
@@ -246,16 +243,11 @@ app.post("/edit-pdf", upload.single('pdf'), async (req, res) => {
                 Math.max(0, Math.min(1, edit.color?.b || 0))
               ),
             });
-            break;
-           
-          case 'drawing':
-            // Handle free drawing paths (simplified)
-            // This is a complex case - for now we'll skip or convert to simple shapes
-            console.log('Drawing path detected - simplified handling');
+            console.log(`Applied line from (${edit.startX}, ${edit.startY}) to (${edit.endX}, ${edit.endY})`);
             break;
            
           default:
-            console.log(`Unknown edit type: ${edit.type}`);
+            console.log(`Skipping unknown edit type: ${edit.type}`);
         }
       } catch (editError) {
         console.error(`Error applying edit:`, editError);
@@ -268,27 +260,37 @@ app.post("/edit-pdf", upload.single('pdf'), async (req, res) => {
     const editedFileName = `edited-resume-${tokenEmail.replace(/[@.]/g, '_')}-${Date.now()}.pdf`;
     const editedFilePath = path.join(__dirname, 'uploads', editedFileName);
    
+    // Ensure uploads directory exists
+    if (!fs.existsSync(path.join(__dirname, 'uploads'))) {
+      fs.mkdirSync(path.join(__dirname, 'uploads'), { recursive: true });
+    }
+    
     fs.writeFileSync(editedFilePath, pdfBytes);
    
-    console.log(`✅ PDF saved successfully: ${editedFileName}`);
+    console.log(`PDF saved successfully: ${editedFileName}`);
+    console.log(`File size: ${pdfBytes.length} bytes`);
    
     res.json({
       success: true,
-      message: "PDF edited successfully with comprehensive changes",
+      message: "PDF edited successfully",
       fileName: editedFileName,
       editsApplied: edits.length,
-      filePath: editedFilePath
+      filePath: editedFilePath,
+      fileSize: pdfBytes.length
     });
    
   } catch (error) {
     console.error("Error editing PDF:", error);
+    console.error("Stack trace:", error.stack);
     res.status(500).json({
       success: false,
       error: error.message,
-      details: "Failed to apply PDF edits"
+      details: "Failed to apply PDF edits",
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
 });
+
 
 // Enhanced send-back route to handle the new editing system
 app.post("/send-back", upload.single('pdf'), async (req, res) => {
