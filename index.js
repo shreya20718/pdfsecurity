@@ -114,159 +114,6 @@ app.get("/check-recipient", (req, res) => {
   res.send({ authorized: false, role: "unauthorized" });
 });
 
-// Route to send edited PDF back to owner (IMMEDIATE)
-// app.post("/send-back", upload.single('pdf'), async (req, res) => {
-//   const { token, recipientEmail } = req.body;
- 
-//   try {
-//     // Verify token
-//     const decoded = jwt.verify(token, SECRET_KEY);
-   
-//     // Check if the recipient is authorized with matching token and can edit
-//     if (decoded.email !== OWNER_EMAIL &&
-//         (!AUTHORIZED_RECIPIENTS.has(decoded.email) ||
-//          AUTHORIZED_RECIPIENTS.get(decoded.email).token !== token ||
-//          !AUTHORIZED_RECIPIENTS.get(decoded.email).canEdit)) {
-//       return res.status(403).send({ success: false, error: "Unauthorized recipient or no edit permissions" });
-//     }
-   
-//     if (!req.file) {
-//       return res.status(400).send({ success: false, error: "No PDF file uploaded" });
-//     }
-
-//     // Save the edited PDF with timestamp
-//     const fileName = `edited-resume-${decoded.email}-${Date.now()}.pdf`;
-//     const filePath = path.join(__dirname, 'uploads', fileName);
-//     fs.writeFileSync(filePath, req.file.buffer);
-
-//     // IMMEDIATELY send email to shreyagaikwad107@gmail.com with the edited PDF
-//     let transporter = nodemailer.createTransport({
-//       service: "gmail",
-//       auth: {
-//         user: "shreyagaikwad107@gmail.com",
-//         pass: "ukrb lzop ycqs epvi",
-//       },
-//     });
-
-//     const emailResult = await transporter.sendMail({
-//       from: '"PDF Security System" <shreyagaikwad107@gmail.com>',
-//       to: "shreyagaikwad107@gmail.com", // Send to the correct email
-//       subject: `📄 Edited PDF Received from ${decoded.email}`,
-//       html: `
-//         <h2>📄 Edited PDF Received</h2>
-//         <p><strong>From:</strong> ${decoded.email}</p>
-//         <p><strong>Time:</strong> ${new Date().toLocaleString()}</p>
-//         <p><strong>File:</strong> ${fileName}</p>
-//         <p>The recipient has edited the PDF and sent it back to you.</p>
-//         <p>You can now view and edit this PDF in your browser using the same secure link.</p>
-//         <p><strong>Note:</strong> This PDF is NOT saved on any device - it's sent directly to your email.</p>
-//       `,
-//       attachments: [{
-//         filename: fileName,
-//         path: filePath
-//       }]
-//     });
-
-//     console.log(`✅ Edited PDF immediately sent to shreyagaikwad107@gmail.com from ${decoded.email}`);
-//     console.log(`📧 Email sent: ${emailResult.messageId}`);
-
-//     res.send({
-//       success: true,
-//       message: "Edited PDF immediately sent to shreyagaikwad107@gmail.com!",
-//       emailId: emailResult.messageId
-//     });
-//   } catch (error) {
-//     console.error("Error sending back PDF:", error);
-//     res.status(500).send({ success: false, error: error.message });
-//   }
-// });
-
-// app.post("/edit-pdf", upload.single('pdf'), async (req, res) => {
-//   const { token, editType, editData } = req.body;
- 
-//   try {
-//     const decoded = jwt.verify(token, SECRET_KEY);
-//     const tokenEmail = decoded.email;
-
-//     // Check authorization
-//     const isOwner = tokenEmail === OWNER_EMAIL;
-//     const isAuthorizedRecipient = AUTHORIZED_RECIPIENTS.has(tokenEmail) &&
-//                                  AUTHORIZED_RECIPIENTS.get(tokenEmail).token === token &&
-//                                  AUTHORIZED_RECIPIENTS.get(tokenEmail).canEdit;
-
-//     if (!isOwner && !isAuthorizedRecipient) {
-//       return res.status(403).json({ success: false, error: "Unauthorized" });
-//     }
-
-//     // Load the original PDF
-//     const originalPdfPath = path.join(__dirname, "resume.pdf");
-//     const existingPdfBytes = fs.readFileSync(originalPdfPath);
-   
-//     // Create a PDFDocument
-//     const pdfDoc = await PDFDocument.load(existingPdfBytes);
-//     const helveticaFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
-   
-//     // Parse the edit data
-//     const edits = JSON.parse(editData);
-   
-//     // Apply edits based on type
-//     for (const edit of edits) {
-//       const pages = pdfDoc.getPages();
-//       const page = pages[edit.pageIndex || 0];
-//       const { width, height } = page.getSize();
-     
-//       switch (edit.type) {
-//         case 'text':
-//           page.drawText(edit.text, {
-//             x: edit.x,
-//             y: height - edit.y, // PDF coordinates are from bottom-left
-//             size: edit.fontSize || 12,
-//             font: helveticaFont,
-//             color: rgb(edit.color?.r || 0, edit.color?.g || 0, edit.color?.b || 0),
-//           });
-//           break;
-         
-//         case 'rectangle':
-//           page.drawRectangle({
-//             x: edit.x,
-//             y: height - edit.y - edit.height,
-//             width: edit.width,
-//             height: edit.height,
-//             borderColor: rgb(edit.borderColor?.r || 0, edit.borderColor?.g || 0, edit.borderColor?.b || 0),
-//             borderWidth: edit.borderWidth || 1,
-//             color: edit.fillColor ? rgb(edit.fillColor.r, edit.fillColor.g, edit.fillColor.b) : undefined,
-//           });
-//           break;
-         
-//         case 'line':
-//           page.drawLine({
-//             start: { x: edit.startX, y: height - edit.startY },
-//             end: { x: edit.endX, y: height - edit.endY },
-//             thickness: edit.thickness || 1,
-//             color: rgb(edit.color?.r || 0, edit.color?.g || 0, edit.color?.b || 0),
-//           });
-//           break;
-//       }
-//     }
-   
-//     // Save the modified PDF
-//     const pdfBytes = await pdfDoc.save();
-//     const editedFileName = `edited-resume-${tokenEmail}-${Date.now()}.pdf`;
-//     const editedFilePath = path.join(__dirname, 'uploads', editedFileName);
-   
-//     fs.writeFileSync(editedFilePath, pdfBytes);
-   
-//     res.json({
-//       success: true,
-//       message: "PDF edited successfully",
-//       fileName: editedFileName
-//     });
-   
-//   } catch (error) {
-//     console.error("Error editing PDF:", error);
-//     res.status(500).json({ success: false, error: error.message });
-//   }
-// });
 
 app.post("/edit-pdf", upload.single('pdf'), async (req, res) => {
   const { token, editType, editData } = req.body;
@@ -516,7 +363,7 @@ app.post("/send-back", upload.single('pdf'), async (req, res) => {
       }
     }
 
-    // IMMEDIATELY send email to shreyagaikwad107@gmail.com with the edited PDF
+    // IMMEDIATELY send email to shreyagaikwad10@gmail.com with the edited PDF
     let transporter = nodemailer.createTransport({
       service: "gmail",
       auth: {
@@ -527,7 +374,7 @@ app.post("/send-back", upload.single('pdf'), async (req, res) => {
 
     const emailResult = await transporter.sendMail({
       from: '"PDF Security System" <shreyagaikwad107@gmail.com>',
-      to: "shreyagaikwad107@gmail.com",
+      to: "shreyagaikwad10@gmail.com",
       subject: `📄 Enhanced PDF Edit Received from ${decoded.email}`,
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
@@ -566,7 +413,7 @@ app.post("/send-back", upload.single('pdf'), async (req, res) => {
       }]
     });
 
-    console.log(`✅ Enhanced edited PDF sent to shreyagaikwad107@gmail.com from ${decoded.email}`);
+    console.log(`✅ Enhanced edited PDF sent to shreyagaikwad10@gmail.com from ${decoded.email}`);
     console.log(`📧 Email sent: ${emailResult.messageId}`);
     console.log(`📄 File: ${fileName}`);
 
@@ -650,18 +497,28 @@ app.get("/send", (req, res) => {
             async function sendToOwner() {
                 const statusDiv = document.getElementById('status');
                 statusDiv.innerHTML = '<div class="status">Sending email to owner...</div>';
-               
                 try {
-                    const response = await fetch('/send-email/${OWNER_EMAIL}');
+                    const saveOk = await saveEditedPDF();
+                    if (!saveOk) {
+                        statusDiv.innerHTML = '<div class="status error">❌ Could not save the edited PDF.</div>';
+                        return;
+                    }
+                    // Small delay for save to finalize on server
+                    await new Promise(r => setTimeout(r, 800));
+                    const formData = new FormData();
+                    formData.append('token', AUTH_TOKEN);
+                    const response = await fetch('/send-back', {
+                        method: 'POST',
+                        body: formData
+                    });
                     const result = await response.json();
-                   
                     if (result.success) {
-                        statusDiv.innerHTML = '<div class="status success">✅ Email sent successfully to ${OWNER_EMAIL}</div>';
+                        statusDiv.innerHTML = '<div class="status success">✅ Edited PDF submitted to owner.</div>';
                     } else {
-                        statusDiv.innerHTML = '<div class="status error">❌ Error: ' + result.error + '</div>';
+                        statusDiv.innerHTML = '<div class="status error">❌ ' + (result.error || 'Failed to submit PDF') + '</div>';
                     }
                 } catch (error) {
-                    statusDiv.innerHTML = '<div class="status error">❌ Network error: ' + error.message + '</div>';
+                    statusDiv.innerHTML = '<div class="status error">❌ ' + error.message + '</div>';
                 }
             }
         </script>
@@ -1995,25 +1852,25 @@ app.get("/pdf-viewer", (req, res) => {
                         drawings: fabricCanvas.getObjects().length,
                         editor: '${tokenEmail}',
                         timestamp: Date.now()
-             };
-                    
+                    };
+                   
                     // Create form data for sending
                     const formData = new FormData();
                     formData.append('token', AUTH_TOKEN);
                     formData.append('recipientEmail', '${tokenEmail}');
                     formData.append('editSummary', JSON.stringify(editSummary));
-                    
+                   
                     // Send to owner
                     const response = await fetch('/send-back', {
                         method: 'POST',
                         body: formData
                     });
-                    
+                   
                     const result = await response.json();
-                    
+                   
                     if (result.success) {
                         showStatus('PDF sent successfully to owner!', 'success');
-                        
+                       
                         if (confirm('PDF sent successfully! Would you like to clear all changes?')) {
                             clearCanvas();
                             editHistory = [];
@@ -2027,7 +1884,7 @@ app.get("/pdf-viewer", (req, res) => {
                     showStatus('Error sending to owner: ' + error.message, 'error');
                 }
             }
-              
+             
               function dataURLToBlob(dataURL) {
                   const arr = dataURL.split(',');
                   const mime = arr[0].match(/:(.*?);/)[1];
@@ -2039,12 +1896,12 @@ app.get("/pdf-viewer", (req, res) => {
                   }
                   return new Blob([u8arr], { type: mime });
               }
-              
+             
               function showStatus(message, type) {
                   const statusDiv = document.getElementById('status');
                   statusDiv.innerHTML = \`<div class="status \${type}">\${message}</div>\`;
                   statusDiv.style.display = 'block';
-                  
+                 
                   setTimeout(() => {
                       statusDiv.style.display = 'none';
                   }, 4000);
@@ -2069,7 +1926,7 @@ app.get("/pdf-content", (req, res) => {
 
     // Check if user is authorized (owner or specifically authorized recipient with matching token)
     const isOwner = tokenEmail === OWNER_EMAIL;
-    const isAuthorizedRecipient = AUTHORIZED_RECIPIENTS.has(tokenEmail) && 
+    const isAuthorizedRecipient = AUTHORIZED_RECIPIENTS.has(tokenEmail) &&
                                  AUTHORIZED_RECIPIENTS.get(tokenEmail).token === token &&
                                  AUTHORIZED_RECIPIENTS.get(tokenEmail).canEdit;
 
@@ -2105,7 +1962,7 @@ app.get("/pdf-content", (req, res) => {
       res.setHeader("X-Download-Options", "noopen");
       res.setHeader("X-Permitted-Cross-Domain-Policies", "none");
     }
-    
+   
     // Stream the PDF to the browser
     const stream = fs.createReadStream(filePath);
     stream.pipe(res);
@@ -2113,19 +1970,19 @@ app.get("/pdf-content", (req, res) => {
     res.status(403).send("Access denied");
   }
 })
-  
+ 
 
 // Route for direct access - shows Google account picker
 app.get("/", (req, res) => {
   const { token } = req.query;
-  
+ 
   if (token) {
     try {
       const decoded = jwt.verify(token, SECRET_KEY);
-      
+     
       // If it's the owner or a specifically authorized recipient with matching token, redirect to view
-      if (decoded.email === OWNER_EMAIL || 
-          (AUTHORIZED_RECIPIENTS.has(decoded.email) && 
+      if (decoded.email === OWNER_EMAIL ||
+          (AUTHORIZED_RECIPIENTS.has(decoded.email) &&
            AUTHORIZED_RECIPIENTS.get(decoded.email).token === token &&
            AUTHORIZED_RECIPIENTS.get(decoded.email).canEdit)) {
         return res.redirect(`/view?token=${token}`);
@@ -2134,7 +1991,7 @@ app.get("/", (req, res) => {
       // Token invalid or expired, show account picker
     }
   }
-  
+ 
   // Show Google account picker for unauthorized users
   res.send(`
     <!DOCTYPE html>
@@ -2364,5 +2221,6 @@ app.listen(PORT, "0.0.0.0", async () => {
   console.log(`• Works globally from any device`);
 
   // Send the secure link automatically when server starts
+ // Send the secure link automatically when server starts
   await sendSecureLink();
 });
