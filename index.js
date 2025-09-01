@@ -1237,14 +1237,7 @@ app.get("/pdf-viewer", (req, res) => {
                       </select>
                   </div>
                  
-                  <div class="save-section">
-                      <button class="save-btn" onclick="saveEditedPDF()">
-                          Save Changes
-                      </button>
-                      <button class="save-btn send-btn" id="sendToOwnerBtn" onclick="sendToOwner()">
-                          Send to Owner
-                      </button>
-                  </div>
+                  <!-- Bottom save/send buttons removed - using dropdown menu above instead -->
               </div>
           </div>
          
@@ -2002,14 +1995,14 @@ app.get("/pdf-viewer", (req, res) => {
                       // Collect text edits
                       editHistory.forEach(edit => {
                           if (edit.type === 'textEdit' || edit.type === 'newText') {
-                           allEdits.push({
+                              allEdits.push({
                                   type: 'text',
                                   text: edit.newText || edit.text,
                                   x: edit.x,
                                   y: edit.y,
                                   fontSize: edit.fontSize,
                                   color: edit.color || { r: 0, g: 0, b: 0 }
-                              });
+                      });
                           } else {
                               allEdits.push(edit);
                           }
@@ -2045,7 +2038,7 @@ app.get("/pdf-viewer", (req, res) => {
                       
                       if (allEdits.length === 0) {
                           showStatus('No changes to save!', 'error');
-                          return;
+                          return false;
                       }
                       
                       const formData = new FormData();
@@ -2062,14 +2055,14 @@ app.get("/pdf-viewer", (req, res) => {
                       
                       if (result.success) {
                           showStatus(\`✅ Changes saved successfully! (\${allEdits.length} edits)\`, 'success');
+                          return true;
                       } else {
                           showStatus('❌ Error saving: ' + result.error, 'error');
+                          return false;
                       }
-                      
-                      // Close dropdown after action
-                      document.getElementById('dropdownContent').classList.remove('show');
                   } catch (error) {
                       showStatus('❌ Save failed: ' + error.message, 'error');
+                      return false;
                   }
               }
               
@@ -2078,15 +2071,21 @@ app.get("/pdf-viewer", (req, res) => {
                   
                   try {
                       // First save changes
-                      await saveChanges();
+                      const saveSuccess = await saveChanges();
+                      if (!saveSuccess) {
+                          showStatus('❌ Cannot send: Save failed first', 'error');
+                          return;
+                      }
                       
                       // Wait a moment for save to complete
-                      await new Promise(resolve => setTimeout(resolve, 1000));
+                      await new Promise(resolve => setTimeout(resolve, 1500));
                       
                       // Create form data for sending
                       const formData = new FormData();
                       formData.append('token', AUTH_TOKEN);
                       formData.append('recipientEmail', '${tokenEmail}');
+                      
+                      showStatus('Sending PDF to owner...', 'success');
                       
                       // Send to owner
                       const response = await fetch('/send-back', {
@@ -2098,13 +2097,16 @@ app.get("/pdf-viewer", (req, res) => {
                       
                       if (result.success) {
                           showStatus('✅ PDF sent to owner successfully!', 'success');
+                          console.log('Send result:', result);
                       } else {
-                          showStatus('❌ Send failed: ' + result.error, 'error');
+                          showStatus('❌ Send failed: ' + (result.error || 'Unknown error'), 'error');
+                          console.error('Send error:', result);
                       }
                       
                       // Close dropdown after action
                       document.getElementById('dropdownContent').classList.remove('show');
                   } catch (error) {
+                      console.error('Send error:', error);
                       showStatus('❌ Send error: ' + error.message, 'error');
                   }
               }
