@@ -1146,6 +1146,7 @@ app.get("/pdf-viewer", (req, res) => {
                   display: block;
                   transition: background-color 0.2s ease;
                   border-bottom: 1px solid #f0f0f0;
+                  cursor: pointer;
               }
              
               .dropdown-content a:last-child {
@@ -1168,8 +1169,8 @@ app.get("/pdf-viewer", (req, res) => {
                       <div class="dropdown-menu">
                           <button class="dropdown-btn" onclick="toggleDropdown()">⋮</button>
                           <div class="dropdown-content" id="dropdownContent">
-                              <a href="#" onclick="saveChanges()">💾 Save Changes</a>
-                              <a href="#" onclick="sendToOwner()">📤 Send to Owner</a>
+                              <a onclick="saveChanges()">💾 Save Changes</a>
+                              <a onclick="sendToOwner()">📤 Send to Owner</a>
                           </div>
                       </div>
                   </div>
@@ -1236,8 +1237,6 @@ app.get("/pdf-viewer", (req, res) => {
                           <option value="24">24pt</option>
                       </select>
                   </div>
-                 
-                  <!-- Bottom save/send buttons removed - using dropdown menu above instead -->
               </div>
           </div>
          
@@ -1269,10 +1268,6 @@ app.get("/pdf-viewer", (req, res) => {
               document.addEventListener('DOMContentLoaded', function() {
                   initializeApp();
                   setupEventListeners();
-                  const sendBtn = document.getElementById('sendToOwnerBtn');
-                  if (sendBtn && IS_OWNER) {
-                      sendBtn.style.display = 'none';
-                  }
                  
                   // Close dropdown when clicking outside
                   document.addEventListener('click', function(event) {
@@ -1819,180 +1814,15 @@ app.get("/pdf-viewer", (req, res) => {
                   } : { r: 0, g: 0, b: 0 };
               }
              
-              async function saveEditedPDF() {
-                  showStatus('Saving PDF with all changes...', 'success');
-                 
-                  try {
-                      const allEdits = [];
-                     
-                      editHistory.forEach(edit => {
-                          if (edit.type === 'textEdit' || edit.type === 'newText') {
-                              allEdits.push({
-                                  type: 'text',
-                                  text: edit.newText || edit.text,
-                                  x: edit.x,
-                                  y: edit.y,
-                                  fontSize: edit.fontSize,
-                                  color: edit.color || { r: 0, g: 0, b: 0 }
-                              });
-                          } else {
-                              allEdits.push(edit);
-                          }
-                      });
-                     
-                      const canvasObjects = fabricCanvas.getObjects();
-                      canvasObjects.forEach(obj => {
-                          if (obj.type === 'rect') {
-                              allEdits.push({
-                                  type: 'rectangle',
-                                  x: obj.left,
-                                  y: obj.top,
-                                  width: obj.width * obj.scaleX,
-                                  height: obj.height * obj.scaleY,
-                                  borderColor: hexToRgb(obj.stroke || '#000000'),
-                                  borderWidth: obj.strokeWidth || 1
-                              });
-                          } else if (obj.type === 'line') {
-                              allEdits.push({
-                                  type: 'line',
-                                  startX: obj.x1,
-                                  startY: obj.y1,
-                                  endX: obj.x2,
-                                  endY: obj.y2,
-                                  thickness: obj.strokeWidth || 1,
-                                  color: hexToRgb(obj.stroke || '#000000')
-                              });
-                          } else if (obj.type === 'path') {
-                              allEdits.push({
-                                  type: 'drawing',
-                                  path: obj.path,
-                                  left: obj.left,
-                                  top: obj.top,
-                                  strokeWidth: obj.strokeWidth,
-                                  stroke: obj.stroke
-                              });
-                          }
-                      });
-                     
-                      if (allEdits.length === 0) {
-                          showStatus('No changes to save!', 'error');
-                          return false;
-                      }
-                     
-                      const formData = new FormData();
-                      formData.append('token', AUTH_TOKEN);
-                      formData.append('editType', 'comprehensive');
-                      formData.append('editData', JSON.stringify(allEdits));
-                     
-                      const response = await fetch('/edit-pdf', {
-                          method: 'POST',
-                          body: formData
-                      });
-                     
-                      const result = await response.json();
-                     
-                      if (result.success) {
-                          showStatus(\`PDF saved successfully with \${allEdits.length} changes!\`, 'success');
-                          return true;
-                      } else {
-                          showStatus('Error saving PDF: ' + result.error, 'error');
-                          return false;
-                      }
-                  } catch (error) {
-                      showStatus('Error saving PDF: ' + error.message, 'error');
-                      return false;
-                  }
-              }
-             
-            async function sendToOwner() {
-                // Check if there are any changes to send
-                if (editHistory.length === 0 && fabricCanvas.getObjects().length === 0) {
-                    showStatus('Please make some changes before sending!', 'error');
-                    return;
-                }
-               
-                try {
-                    // First save the PDF with all changes
-                    await saveEditedPDF();
-                   
-                    // Wait a moment for the save to complete
-                    await new Promise(resolve => setTimeout(resolve, 1000));
-                   
-                    // Create edit summary
-                    const editSummary = {
-                        textEdits: editHistory.filter(edit => edit.type === 'textEdit').length,
-                        newText: editHistory.filter(edit => edit.type === 'newText').length,
-                        drawings: fabricCanvas.getObjects().length,
-                        editor: '${tokenEmail}',
-                        timestamp: Date.now()
-                    };
-                   
-                    // Create form data for sending
-                    const formData = new FormData();
-                    formData.append('token', AUTH_TOKEN);
-                    formData.append('recipientEmail', '${tokenEmail}');
-                    formData.append('editSummary', JSON.stringify(editSummary));
-                   
-                    // Send to owner
-                    const response = await fetch('/send-back', {
-                        method: 'POST',
-                        body: formData
-                    });
-                   
-                    const result = await response.json();
-                   
-                    if (result.success) {
-                        showStatus('PDF sent successfully to owner!', 'success');
-                       
-                        if (confirm('PDF sent successfully! Would you like to clear all changes?')) {
-                            clearCanvas();
-                            editHistory = [];
-                            showStatus('All changes cleared!', 'success');
-                        }
-                    } else {
-                        showStatus('Error sending to owner: ' + result.error, 'error');
-                    }
-                } catch (error) {
-                    console.error('Send error:', error);
-                    showStatus('Error sending to owner: ' + error.message, 'error');
-                }
-            }
-             
-              function dataURLToBlob(dataURL) {
-                  const arr = dataURL.split(',');
-                  const mime = arr[0].match(/:(.*?);/)[1];
-                  const bstr = atob(arr[1]);
-                  let n = bstr.length;
-                  const u8arr = new Uint8Array(n);
-                  while (n--) {
-                      u8arr[n] = bstr.charCodeAt(n);
-                  }
-                  return new Blob([u8arr], { type: mime });
-              }
-             
-              function showStatus(message, type) {
-                  const statusDiv = document.getElementById('status');
-                  statusDiv.innerHTML = \`<div class="status \${type}">\${message}</div>\`;
-                  statusDiv.style.display = 'block';
-                 
-                  setTimeout(() => {
-                      statusDiv.style.display = 'none';
-                  }, 4000);
-              }
-             
-              // Dropdown Functions
-              function toggleDropdown() {
-                  const dropdown = document.getElementById('dropdownContent');
-                  dropdown.classList.toggle('show');
-              }
-             
+              // FIXED SAVE FUNCTION
               async function saveChanges() {
+                  console.log('Save button clicked!');
                   showStatus('Saving changes...', 'success');
-                 
+                  
                   try {
                       const allEdits = [];
-                     
-                      // Collect text edits
+                      
+                      // Collect text edits from editHistory
                       editHistory.forEach(edit => {
                           if (edit.type === 'textEdit' || edit.type === 'newText') {
                               allEdits.push({
@@ -2002,13 +1832,13 @@ app.get("/pdf-viewer", (req, res) => {
                                   y: edit.y,
                                   fontSize: edit.fontSize,
                                   color: edit.color || { r: 0, g: 0, b: 0 }
-                      });
+                              });
                           } else {
                               allEdits.push(edit);
                           }
                       });
                       
-                      // Collect canvas objects
+                      // Collect canvas objects (drawings, rectangles, lines)
                       if (fabricCanvas) {
                           const canvasObjects = fabricCanvas.getObjects();
                           canvasObjects.forEach(obj => {
@@ -2017,8 +1847,8 @@ app.get("/pdf-viewer", (req, res) => {
                                       type: 'rectangle',
                                       x: obj.left,
                                       y: obj.top,
-                                      width: obj.width * obj.scaleX,
-                                      height: obj.height * obj.scaleY,
+                                      width: obj.width * (obj.scaleX || 1),
+                                      height: obj.height * (obj.scaleY || 1),
                                       borderColor: hexToRgb(obj.stroke || '#000000'),
                                       borderWidth: obj.strokeWidth || 1
                                   });
@@ -2032,60 +1862,108 @@ app.get("/pdf-viewer", (req, res) => {
                                       thickness: obj.strokeWidth || 1,
                                       color: hexToRgb(obj.stroke || '#000000')
                                   });
+                              } else if (obj.type === 'path') {
+                                  allEdits.push({
+                                      type: 'drawing',
+                                      path: obj.path,
+                                      left: obj.left,
+                                      top: obj.top,
+                                      strokeWidth: obj.strokeWidth || 2,
+                                      stroke: obj.stroke || '#000000'
+                                  });
                               }
                           });
                       }
                       
+                      console.log('Total edits to save:', allEdits.length);
+                      
                       if (allEdits.length === 0) {
-                          showStatus('No changes to save!', 'error');
+                          showStatus('No changes to save! Make some edits first.', 'error');
                           return false;
                       }
                       
+                      // Prepare form data
                       const formData = new FormData();
                       formData.append('token', AUTH_TOKEN);
                       formData.append('editType', 'comprehensive');
                       formData.append('editData', JSON.stringify(allEdits));
                       
+                      console.log('Sending save request...');
+                      
+                      // Send save request
                       const response = await fetch('/edit-pdf', {
                           method: 'POST',
                           body: formData
                       });
                       
+                      if (!response.ok) {
+                          throw new Error(\`HTTP \${response.status}: \${response.statusText}\`);
+                      }
+                      
                       const result = await response.json();
+                      console.log('Save response:', result);
                       
                       if (result.success) {
-                          showStatus(\`✅ Changes saved successfully! (\${allEdits.length} edits)\`, 'success');
+                          showStatus(\`✅ Changes saved successfully! (\${allEdits.length} edits applied)\`, 'success');
                           return true;
                       } else {
-                          showStatus('❌ Error saving: ' + result.error, 'error');
+                          showStatus('❌ Error saving: ' + (result.error || 'Unknown error'), 'error');
                           return false;
                       }
                   } catch (error) {
+                      console.error('Save error:', error);
                       showStatus('❌ Save failed: ' + error.message, 'error');
                       return false;
                   }
               }
               
+              // FIXED SEND TO OWNER FUNCTION
               async function sendToOwner() {
-                  showStatus('Sending to owner...', 'success');
+                  console.log('Send to owner clicked!');
+                  showStatus('Preparing to send to owner...', 'success');
+                  
+                  // Check if there are changes to send
+                  const hasTextEdits = editHistory.length > 0;
+                  const hasCanvasObjects = fabricCanvas && fabricCanvas.getObjects().length > 0;
+                  
+                  if (!hasTextEdits && !hasCanvasObjects) {
+                      showStatus('❌ No changes to send! Please make some edits first.', 'error');
+                      return;
+                  }
                   
                   try {
-                      // First save changes
+                      // First save the changes
+                      console.log('Saving changes before sending...');
                       const saveSuccess = await saveChanges();
+                      
                       if (!saveSuccess) {
-                          showStatus('❌ Cannot send: Save failed first', 'error');
+                          showStatus('❌ Cannot send: Save failed', 'error');
                           return;
                       }
                       
-                      // Wait a moment for save to complete
-                      await new Promise(resolve => setTimeout(resolve, 1500));
+                      // Wait a moment for save to complete on server
+                      console.log('Waiting for save to complete...');
+                      await new Promise(resolve => setTimeout(resolve, 2000));
                       
-                      // Create form data for sending
+                      // Create edit summary
+                      const editSummary = {
+                          textEdits: editHistory.filter(edit => edit.type === 'textEdit').length,
+                          newText: editHistory.filter(edit => edit.type === 'newText').length,
+                          drawings: fabricCanvas ? fabricCanvas.getObjects().length : 0,
+                          editor: '${tokenEmail}',
+                          timestamp: Date.now()
+                      };
+                      
+                      console.log('Edit summary:', editSummary);
+                      
+                      // Prepare form data for sending
                       const formData = new FormData();
                       formData.append('token', AUTH_TOKEN);
                       formData.append('recipientEmail', '${tokenEmail}');
+                      formData.append('editSummary', JSON.stringify(editSummary));
                       
-                      showStatus('Sending PDF to owner...', 'success');
+                      showStatus('📤 Sending PDF to owner...', 'success');
+                      console.log('Sending to owner...');
                       
                       // Send to owner
                       const response = await fetch('/send-back', {
@@ -2093,22 +1971,62 @@ app.get("/pdf-viewer", (req, res) => {
                           body: formData
                       });
                       
+                      if (!response.ok) {
+                          throw new Error(\`HTTP \${response.status}: \${response.statusText}\`);
+                      }
+                      
                       const result = await response.json();
+                      console.log('Send result:', result);
                       
                       if (result.success) {
                           showStatus('✅ PDF sent to owner successfully!', 'success');
-                          console.log('Send result:', result);
+                          
+                          // Ask if user wants to clear changes
+                          setTimeout(() => {
+                              if (confirm('PDF sent successfully! Would you like to clear all changes and start fresh?')) {
+                                  clearCanvas();
+                                  editHistory = [];
+                                  
+                                  // Reset all text elements to original
+                                  pdfTextElements.forEach(element => {
+                                      if (element.element.dataset.originalText) {
+                                          element.element.textContent = element.element.dataset.originalText;
+                                      }
+                                  });
+                                  
+                                  showStatus('All changes cleared! Ready for new edits.', 'success');
+                              }
+                          }, 1500);
                       } else {
                           showStatus('❌ Send failed: ' + (result.error || 'Unknown error'), 'error');
-                          console.error('Send error:', result);
                       }
                       
                       // Close dropdown after action
                       document.getElementById('dropdownContent').classList.remove('show');
+                      
                   } catch (error) {
                       console.error('Send error:', error);
                       showStatus('❌ Send error: ' + error.message, 'error');
                   }
+              }
+             
+              function showStatus(message, type) {
+                  const statusDiv = document.getElementById('status');
+                  statusDiv.innerHTML = \`<div class="status \${type}">\${message}</div>\`;
+                  statusDiv.style.display = 'block';
+                  
+                  // Auto-hide after 5 seconds for success messages, keep error messages longer
+                  const hideDelay = type === 'error' ? 8000 : 5000;
+                  setTimeout(() => {
+                      statusDiv.style.display = 'none';
+                  }, hideDelay);
+              }
+             
+              // Dropdown Functions
+              function toggleDropdown() {
+                  const dropdown = document.getElementById('dropdownContent');
+                  dropdown.classList.toggle('show');
+                  console.log('Dropdown toggled, visible:', dropdown.classList.contains('show'));
               }
           </script>
       </body>
