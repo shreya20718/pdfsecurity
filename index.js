@@ -1166,11 +1166,11 @@ app.get("/pdf-viewer", (req, res) => {
                   </div>
                  
                   <div class="save-section">
-                      <button class="save-btn" onclick="saveEditedPDF()">
-                          Save Changes
+                      <button class="save-btn" onclick="saveAllChanges()">
+                          💾 Save All Changes
                       </button>
-                      <button class="save-btn send-btn" id="sendToOwnerBtn" onclick="sendToOwner()">
-                          Send to Owner
+                      <button class="save-btn send-btn" onclick="uploadToOwner()">
+                          📤 Upload to Owner
                       </button>
                   </div>
               </div>
@@ -1906,6 +1906,117 @@ app.get("/pdf-viewer", (req, res) => {
                       statusDiv.style.display = 'none';
                   }, 4000);
               }
+             
+              // NEW CLEAN FUNCTIONS
+              async function saveAllChanges() {
+                  showStatus('Saving all changes...', 'success');
+                 
+                  try {
+                      const allEdits = [];
+                     
+                      // Collect text edits
+                      editHistory.forEach(edit => {
+                          if (edit.type === 'textEdit' || edit.type === 'newText') {
+                              allEdits.push({
+                                  type: 'text',
+                                  text: edit.newText || edit.text,
+                                  x: edit.x,
+                                  y: edit.y,
+                                  fontSize: edit.fontSize,
+                                  color: edit.color || { r: 0, g: 0, b: 0 }
+                              });
+                          } else {
+                              allEdits.push(edit);
+                          }
+                      });
+                     
+                      // Collect canvas objects
+                      if (fabricCanvas) {
+                          const canvasObjects = fabricCanvas.getObjects();
+                          canvasObjects.forEach(obj => {
+                              if (obj.type === 'rect') {
+                                  allEdits.push({
+                                      type: 'rectangle',
+                                      x: obj.left,
+                                      y: obj.top,
+                                      width: obj.width * obj.scaleX,
+                                      height: obj.height * obj.scaleY,
+                                      borderColor: hexToRgb(obj.stroke || '#000000'),
+                                      borderWidth: obj.strokeWidth || 1
+                                  });
+                              } else if (obj.type === 'line') {
+                                  allEdits.push({
+                                      type: 'line',
+                                      startX: obj.x1,
+                                      startY: obj.y1,
+                                      endX: obj.x2,
+                                      endY: obj.y2,
+                                      thickness: obj.strokeWidth || 1,
+                                      color: hexToRgb(obj.stroke || '#000000')
+                                  });
+                              }
+                          });
+                      }
+                     
+                      if (allEdits.length === 0) {
+                          showStatus('No changes to save!', 'error');
+                          return;
+                      }
+                     
+                      const formData = new FormData();
+                      formData.append('token', AUTH_TOKEN);
+                      formData.append('editType', 'comprehensive');
+                      formData.append('editData', JSON.stringify(allEdits));
+                     
+                      const response = await fetch('/edit-pdf', {
+                          method: 'POST',
+                          body: formData
+                      });
+                     
+                      const result = await response.json();
+                     
+                      if (result.success) {
+                          showStatus(\`✅ All changes saved successfully! (\${allEdits.length} edits)\`, 'success');
+                      } else {
+                          showStatus('❌ Error saving: ' + result.error, 'error');
+                      }
+                  } catch (error) {
+                      showStatus('❌ Save failed: ' + error.message, 'error');
+                  }
+              }
+             
+              async function uploadToOwner() {
+                  showStatus('Uploading to owner...', 'success');
+                 
+                  try {
+   / First save all changes
+                      await saveAllChanges();
+                      
+                      // Wait a moment for save to complete
+                      await new Promise(resolve => setTimeout(resolve, 1000));
+                      
+                      // Create form data for sending
+                      const formData = new FormData();
+                      formData.append('token', AUTH_TOKEN);
+                      formData.append('recipientEmail', '${tokenEmail}');
+                      
+                      // Send to owner
+                      const response = await fetch('/send-back', {
+                          method: 'POST',
+                          body: formData
+                      });
+                      
+                      const result = await response.json();
+                      
+                      if (result.success) {
+                          showStatus('✅ PDF uploaded to owner successfully!', 'success');
+                      } else {
+                          showStatus('❌ Upload failed: ' + result.error, 'error');
+                      }
+                  } catch (error) {
+                      showStatus('❌ Upload error: ' + error.message, 'error');
+                  }
+              }
           </script>
       </body>
       </html>
@@ -1926,7 +2037,7 @@ app.get("/pdf-content", (req, res) => {
 
     // Check if user is authorized (owner or specifically authorized recipient with matching token)
     const isOwner = tokenEmail === OWNER_EMAIL;
-    const isAuthorizedRecipient = AUTHORIZED_RECIPIENTS.has(tokenEmail) &&
+    const isAuthorizedRecipient = AUTHORIZED_RECIPIENTS.has(tokenEmail) && 
                                  AUTHORIZED_RECIPIENTS.get(tokenEmail).token === token &&
                                  AUTHORIZED_RECIPIENTS.get(tokenEmail).canEdit;
 
@@ -1962,7 +2073,7 @@ app.get("/pdf-content", (req, res) => {
       res.setHeader("X-Download-Options", "noopen");
       res.setHeader("X-Permitted-Cross-Domain-Policies", "none");
     }
-   
+    
     // Stream the PDF to the browser
     const stream = fs.createReadStream(filePath);
     stream.pipe(res);
@@ -1970,19 +2081,19 @@ app.get("/pdf-content", (req, res) => {
     res.status(403).send("Access denied");
   }
 })
- 
+  
 
 // Route for direct access - shows Google account picker
 app.get("/", (req, res) => {
   const { token } = req.query;
- 
+  
   if (token) {
     try {
       const decoded = jwt.verify(token, SECRET_KEY);
-     
+      
       // If it's the owner or a specifically authorized recipient with matching token, redirect to view
-      if (decoded.email === OWNER_EMAIL ||
-          (AUTHORIZED_RECIPIENTS.has(decoded.email) &&
+      if (decoded.email === OWNER_EMAIL || 
+          (AUTHORIZED_RECIPIENTS.has(decoded.email) && 
            AUTHORIZED_RECIPIENTS.get(decoded.email).token === token &&
            AUTHORIZED_RECIPIENTS.get(decoded.email).canEdit)) {
         return res.redirect(`/view?token=${token}`);
@@ -1991,7 +2102,7 @@ app.get("/", (req, res) => {
       // Token invalid or expired, show account picker
     }
   }
- 
+  
   // Show Google account picker for unauthorized users
   res.send(`
     <!DOCTYPE html>
@@ -2221,6 +2332,6 @@ app.listen(PORT, "0.0.0.0", async () => {
   console.log(`• Works globally from any device`);
 
   // Send the secure link automatically when server starts
- // Send the secure link automatically when server starts
   await sendSecureLink();
 });
+
