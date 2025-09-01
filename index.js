@@ -1093,14 +1093,86 @@ app.get("/pdf-viewer", (req, res) => {
                   background: #6c757d;
                   color: white;
               }
+             
+              /* Dropdown Menu Styles */
+              .dropdown-menu {
+                  position: relative;
+                  display: inline-block;
+              }
+             
+              .dropdown-btn {
+                  background: #667eea;
+                  color: white;
+                  border: none;
+                  padding: 8px 12px;
+                  border-radius: 6px;
+                  cursor: pointer;
+                  font-size: 18px;
+                  transition: all 0.3s ease;
+              }
+             
+              .dropdown-btn:hover {
+                  background: #5a6fd8;
+                  transform: translateY(-1px);
+              }
+             
+              .dropdown-content {
+                  display: none;
+                  position: absolute;
+                  right: 0;
+                  background: white;
+                  min-width: 180px;
+                  box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+                  border-radius: 8px;
+                  z-index: 1000;
+                  border: 1px solid #e0e0e0;
+                  overflow: hidden;
+              }
+             
+              .dropdown-content.show {
+                  display: block;
+                  animation: slideDown 0.2s ease;
+              }
+             
+              @keyframes slideDown {
+                  from { opacity: 0; transform: translateY(-10px); }
+                  to { opacity: 1; transform: translateY(0); }
+              }
+             
+              .dropdown-content a {
+                  color: #333;
+                  padding: 12px 16px;
+                  text-decoration: none;
+                  display: block;
+                  transition: background-color 0.2s ease;
+                  border-bottom: 1px solid #f0f0f0;
+              }
+             
+              .dropdown-content a:last-child {
+                  border-bottom: none;
+              }
+             
+              .dropdown-content a:hover {
+                  background-color: #f8f9fa;
+                  color: #667eea;
+              }
           </style>
       </head>
       <body>
           <div class="editor-container">
               <div class="pdf-editor">
-                  <h2 style="margin-top: 0; color: #333; text-align: center; font-size: 18px;">
-                      PDF Interactive Editor
-                  </h2>
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                      <h2 style="margin: 0; color: #333; font-size: 18px;">
+                          PDF Interactive Editor
+                      </h2>
+                      <div class="dropdown-menu">
+                          <button class="dropdown-btn" onclick="toggleDropdown()">⋮</button>
+                          <div class="dropdown-content" id="dropdownContent">
+                              <a href="#" onclick="saveChanges()">💾 Save Changes</a>
+                              <a href="#" onclick="sendToOwner()">📤 Send to Owner</a>
+                          </div>
+                      </div>
+                  </div>
                   <div class="canvas-container" id="canvasContainer">
                       <div class="loading" id="loadingIndicator">
                           <div class="spinner"></div>
@@ -1208,6 +1280,14 @@ app.get("/pdf-viewer", (req, res) => {
                   if (sendBtn && IS_OWNER) {
                       sendBtn.style.display = 'none';
                   }
+                 
+                  // Close dropdown when clicking outside
+                  document.addEventListener('click', function(event) {
+                      const dropdown = document.querySelector('.dropdown-menu');
+                      if (!dropdown.contains(event.target)) {
+                          document.getElementById('dropdownContent').classList.remove('show');
+                      }
+                  });
               });
              
               function initializeApp() {
@@ -1906,6 +1986,128 @@ app.get("/pdf-viewer", (req, res) => {
                       statusDiv.style.display = 'none';
                   }, 4000);
               }
+             
+              // Dropdown Functions
+              function toggleDropdown() {
+                  const dropdown = document.getElementById('dropdownContent');
+                  dropdown.classList.toggle('show');
+              }
+             
+              async function saveChanges() {
+                  showStatus('Saving changes...', 'success');
+                 
+                  try {
+                      const allEdits = [];
+                     
+                      // Collect text edits
+                      editHistory.forEach(edit => {
+                          if (edit.type === 'textEdit' || edit.type === 'newText') {
+                           allEdits.push({
+                                  type: 'text',
+                                  text: edit.newText || edit.text,
+                                  x: edit.x,
+                                  y: edit.y,
+                                  fontSize: edit.fontSize,
+                                  color: edit.color || { r: 0, g: 0, b: 0 }
+                              });
+                          } else {
+                              allEdits.push(edit);
+                          }
+                      });
+                      
+                      // Collect canvas objects
+                      if (fabricCanvas) {
+                          const canvasObjects = fabricCanvas.getObjects();
+                          canvasObjects.forEach(obj => {
+                              if (obj.type === 'rect') {
+                                  allEdits.push({
+                                      type: 'rectangle',
+                                      x: obj.left,
+                                      y: obj.top,
+                                      width: obj.width * obj.scaleX,
+                                      height: obj.height * obj.scaleY,
+                                      borderColor: hexToRgb(obj.stroke || '#000000'),
+                                      borderWidth: obj.strokeWidth || 1
+                                  });
+                              } else if (obj.type === 'line') {
+                                  allEdits.push({
+                                      type: 'line',
+                                      startX: obj.x1,
+                                      startY: obj.y1,
+                                      endX: obj.x2,
+                                      endY: obj.y2,
+                                      thickness: obj.strokeWidth || 1,
+                                      color: hexToRgb(obj.stroke || '#000000')
+                                  });
+                              }
+                          });
+                      }
+                      
+                      if (allEdits.length === 0) {
+                          showStatus('No changes to save!', 'error');
+                          return;
+                      }
+                      
+                      const formData = new FormData();
+                      formData.append('token', AUTH_TOKEN);
+                      formData.append('editType', 'comprehensive');
+                      formData.append('editData', JSON.stringify(allEdits));
+                      
+                      const response = await fetch('/edit-pdf', {
+                          method: 'POST',
+                          body: formData
+                      });
+                      
+                      const result = await response.json();
+                      
+                      if (result.success) {
+                          showStatus(\`✅ Changes saved successfully! (\${allEdits.length} edits)\`, 'success');
+                      } else {
+                          showStatus('❌ Error saving: ' + result.error, 'error');
+                      }
+                      
+                      // Close dropdown after action
+                      document.getElementById('dropdownContent').classList.remove('show');
+                  } catch (error) {
+                      showStatus('❌ Save failed: ' + error.message, 'error');
+                  }
+              }
+              
+              async function sendToOwner() {
+                  showStatus('Sending to owner...', 'success');
+                  
+                  try {
+                      // First save changes
+                      await saveChanges();
+                      
+                      // Wait a moment for save to complete
+                      await new Promise(resolve => setTimeout(resolve, 1000));
+                      
+                      // Create form data for sending
+                      const formData = new FormData();
+                      formData.append('token', AUTH_TOKEN);
+                      formData.append('recipientEmail', '${tokenEmail}');
+                      
+                      // Send to owner
+                      const response = await fetch('/send-back', {
+                          method: 'POST',
+                          body: formData
+                      });
+                      
+                      const result = await response.json();
+                      
+                      if (result.success) {
+                          showStatus('✅ PDF sent to owner successfully!', 'success');
+                      } else {
+                          showStatus('❌ Send failed: ' + result.error, 'error');
+                      }
+                      
+                      // Close dropdown after action
+                      document.getElementById('dropdownContent').classList.remove('show');
+                  } catch (error) {
+                      showStatus('❌ Send error: ' + error.message, 'error');
+                  }
+              }
           </script>
       </body>
       </html>
@@ -1926,7 +2128,7 @@ app.get("/pdf-content", (req, res) => {
 
     // Check if user is authorized (owner or specifically authorized recipient with matching token)
     const isOwner = tokenEmail === OWNER_EMAIL;
-    const isAuthorizedRecipient = AUTHORIZED_RECIPIENTS.has(tokenEmail) &&
+    const isAuthorizedRecipient = AUTHORIZED_RECIPIENTS.has(tokenEmail) && 
                                  AUTHORIZED_RECIPIENTS.get(tokenEmail).token === token &&
                                  AUTHORIZED_RECIPIENTS.get(tokenEmail).canEdit;
 
@@ -1962,7 +2164,7 @@ app.get("/pdf-content", (req, res) => {
       res.setHeader("X-Download-Options", "noopen");
       res.setHeader("X-Permitted-Cross-Domain-Policies", "none");
     }
-   
+    
     // Stream the PDF to the browser
     const stream = fs.createReadStream(filePath);
     stream.pipe(res);
@@ -1970,19 +2172,19 @@ app.get("/pdf-content", (req, res) => {
     res.status(403).send("Access denied");
   }
 })
- 
+  
 
 // Route for direct access - shows Google account picker
 app.get("/", (req, res) => {
   const { token } = req.query;
- 
+  
   if (token) {
     try {
       const decoded = jwt.verify(token, SECRET_KEY);
-     
+      
       // If it's the owner or a specifically authorized recipient with matching token, redirect to view
-      if (decoded.email === OWNER_EMAIL ||
-          (AUTHORIZED_RECIPIENTS.has(decoded.email) &&
+      if (decoded.email === OWNER_EMAIL || 
+          (AUTHORIZED_RECIPIENTS.has(decoded.email) && 
            AUTHORIZED_RECIPIENTS.get(decoded.email).token === token &&
            AUTHORIZED_RECIPIENTS.get(decoded.email).canEdit)) {
         return res.redirect(`/view?token=${token}`);
@@ -1991,7 +2193,7 @@ app.get("/", (req, res) => {
       // Token invalid or expired, show account picker
     }
   }
- 
+  
   // Show Google account picker for unauthorized users
   res.send(`
     <!DOCTYPE html>
@@ -2221,6 +2423,5 @@ app.listen(PORT, "0.0.0.0", async () => {
   console.log(`• Works globally from any device`);
 
   // Send the secure link automatically when server starts
- // Send the secure link automatically when server starts
   await sendSecureLink();
 });
