@@ -1,3 +1,4 @@
+
 const express = require("express");
 const jwt = require("jsonwebtoken");
 const fs = require("fs");
@@ -440,6 +441,7 @@ app.post("/send-back", upload.single('pdf'), async (req, res) => {
 });
 
 // Web interface for sending emails
+// Web interface for sending emails or SMS
 app.get("/send", (req, res) => {
   res.send(`
     <!DOCTYPE html>
@@ -449,31 +451,53 @@ app.get("/send", (req, res) => {
         <style>
             body { font-family: Arial, sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; }
             .container { background: #f5f5f5; padding: 30px; border-radius: 10px; }
-            input[type="email"] { width: 100%; padding: 10px; margin: 10px 0; border: 1px solid #ddd; border-radius: 5px; }
+            .form-section { margin: 20px 0; padding: 20px; background: white; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+            .form-section h3 { margin-top: 0; color: #333; }
+            input[type="email"], input[type="tel"] { width: 100%; padding: 10px; margin: 10px 0; border: 1px solid #ddd; border-radius: 5px; }
             button { background: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; margin: 5px; }
             button:hover { background: #0056b3; }
             .status { margin-top: 20px; padding: 10px; border-radius: 5px; }
             .success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
             .error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+            .quick-actions { margin-top: 20px; }
         </style>
     </head>
     <body>
         <div class="container">
             <h2>📧 Send Secure PDF Link</h2>
-            <p>Enter an email address to send the secure PDF link (recipients can view and edit in Chrome):</p>
-            <form id="emailForm">
-                <input type="email" id="email" placeholder="Enter email address" required>
-                <button type="submit">Send Email</button>
-            </form>
+            
+            <!-- Email Section -->
+            <div class="form-section">
+                <h3>📧 Send via Email</h3>
+                <p>Enter an email address to send the secure PDF link (recipients can view and edit in Chrome):</p>
+                <form id="emailForm">
+                    <input type="email" id="email" placeholder="Enter email address" required>
+                    <button type="submit">Send Email</button>
+                </form>
+            </div>
+            
+            <!-- Phone Number Section -->
+            <div class="form-section">
+                <h3>📱 Send via Phone Number</h3>
+                <p>Enter a phone number to send the secure PDF link via SMS:</p>
+                <form id="phoneForm">
+                    <input type="tel" id="phone" placeholder="Enter phone number (e.g., +1234567890)" required>
+                    <button type="submit">Send SMS</button>
+                </form>
+            </div>
+            
             <div id="status"></div>
            
             <hr style="margin: 30px 0;">
-            <h3>Quick Actions:</h3>
-            <button onclick="sendToOwner()">Send to Owner</button>
-            <button onclick="window.location.href='/'">View PDF Access Page</button>
+            <div class="quick-actions">
+                <h3>Quick Actions:</h3>
+                <button onclick="sendToOwner()">Send to Owner</button>
+                <button onclick="window.location.href='/'">View PDF Access Page</button>
+            </div>
         </div>
        
         <script>
+            // Email Form Handler
             document.getElementById('emailForm').addEventListener('submit', async function(e) {
                 e.preventDefault();
                 const email = document.getElementById('email').value;
@@ -488,6 +512,31 @@ app.get("/send", (req, res) => {
                     if (result.success) {
                         statusDiv.innerHTML = '<div class="status success">✅ Email sent successfully to ' + email + '</div>';
                         document.getElementById('email').value = '';
+                    } else {
+                        statusDiv.innerHTML = '<div class="status error">❌ Error: ' + result.error + '</div>';
+                    }
+                } catch (error) {
+                    statusDiv.innerHTML = '<div class="status error">❌ Network error: ' + error.message + '</div>';
+                }
+            });
+            
+            // Phone Form Handler
+            document.getElementById('phoneForm').addEventListener('submit', async function(e) {
+                e.preventDefault();
+                const phone = document.getElementById('phone').value;
+                const statusDiv = document.getElementById('status');
+               
+                statusDiv.innerHTML = '<div class="status">Sending SMS...</div>';
+               
+                try {
+                    const response = await fetch('/send-sms/' + encodeURIComponent(phone), {
+                        method: 'POST'
+                    });
+                    const result = await response.json();
+                   
+                    if (result.success) {
+                        statusDiv.innerHTML = '<div class="status success">✅ SMS sent successfully to ' + phone + '</div>';
+                        document.getElementById('phone').value = '';
                     } else {
                         statusDiv.innerHTML = '<div class="status error">❌ Error: ' + result.error + '</div>';
                     }
