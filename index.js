@@ -115,181 +115,181 @@ app.get("/check-recipient", (req, res) => {
 });
 
 // Fixed /edit-pdf endpoint
-app.post("/edit-pdf", upload.single('pdf'), async (req, res) => {
-  const { token, editType, editData } = req.body;
+// app.post("/edit-pdf", upload.single('pdf'), async (req, res) => {
+//   const { token, editType, editData } = req.body;
  
-  try {
-    const decoded = jwt.verify(token, SECRET_KEY);
-    const tokenEmail = decoded.email;
+//   try {
+//     const decoded = jwt.verify(token, SECRET_KEY);
+//     const tokenEmail = decoded.email;
 
-    // Check authorization
-    const isOwner = tokenEmail === OWNER_EMAIL;
-    const isAuthorizedRecipient = AUTHORIZED_RECIPIENTS.has(tokenEmail) &&
-                                 AUTHORIZED_RECIPIENTS.get(tokenEmail).token === token &&
-                                 AUTHORIZED_RECIPIENTS.get(tokenEmail).canEdit;
+//     // Check authorization
+//     const isOwner = tokenEmail === OWNER_EMAIL;
+//     const isAuthorizedRecipient = AUTHORIZED_RECIPIENTS.has(tokenEmail) &&
+//                                  AUTHORIZED_RECIPIENTS.get(tokenEmail).token === token &&
+//                                  AUTHORIZED_RECIPIENTS.get(tokenEmail).canEdit;
 
-    if (!isOwner && !isAuthorizedRecipient) {
-      return res.status(403).json({ success: false, error: "Unauthorized" });
-    }
+//     if (!isOwner && !isAuthorizedRecipient) {
+//       return res.status(403).json({ success: false, error: "Unauthorized" });
+//     }
 
-    // Check if resume.pdf exists
-    const originalPdfPath = path.join(__dirname, "resume.pdf");
-    if (!fs.existsSync(originalPdfPath)) {
-      console.error("resume.pdf not found at:", originalPdfPath);
-      return res.status(404).json({ success: false, error: "PDF file not found" });
-    }
+//     // Check if resume.pdf exists
+//     const originalPdfPath = path.join(__dirname, "resume.pdf");
+//     if (!fs.existsSync(originalPdfPath)) {
+//       console.error("resume.pdf not found at:", originalPdfPath);
+//       return res.status(404).json({ success: false, error: "PDF file not found" });
+//     }
 
-    // Load the original PDF
-    const existingPdfBytes = fs.readFileSync(originalPdfPath);
+//     // Load the original PDF
+//     const existingPdfBytes = fs.readFileSync(originalPdfPath);
    
-    // Create a PDFDocument
-    const pdfDoc = await PDFDocument.load(existingPdfBytes);
-    const helveticaFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
+//     // Create a PDFDocument
+//     const pdfDoc = await PDFDocument.load(existingPdfBytes);
+//     const helveticaFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
    
-    // Parse the edit data
-    let edits;
-    try {
-      edits = JSON.parse(editData);
-    } catch (parseError) {
-      console.error("Error parsing editData:", parseError);
-      return res.status(400).json({ success: false, error: "Invalid edit data format" });
-    }
+//     // Parse the edit data
+//     let edits;
+//     try {
+//       edits = JSON.parse(editData);
+//     } catch (parseError) {
+//       console.error("Error parsing editData:", parseError);
+//       return res.status(400).json({ success: false, error: "Invalid edit data format" });
+//     }
    
-    console.log(`Processing ${edits.length} edits for ${tokenEmail}`);
+//     console.log(`Processing ${edits.length} edits for ${tokenEmail}`);
    
-    // Get the first page
-    const pages = pdfDoc.getPages();
-    if (pages.length === 0) {
-      return res.status(400).json({ success: false, error: "PDF has no pages" });
-    }
+//     // Get the first page
+//     const pages = pdfDoc.getPages();
+//     if (pages.length === 0) {
+//       return res.status(400).json({ success: false, error: "PDF has no pages" });
+//     }
     
-    const page = pages[0];
-    const { width, height } = page.getSize();
-    console.log(`PDF dimensions: ${width} x ${height}`);
+//     const page = pages[0];
+//     const { width, height } = page.getSize();
+//     console.log(`PDF dimensions: ${width} x ${height}`);
    
-    // Apply edits based on type
-    for (const edit of edits) {
-      try {
-        switch (edit.type) {
-          case 'text':
-            page.drawText(edit.text || '', {
-              x: Math.max(0, Math.min(width - 50, edit.x || 0)),
-              y: Math.max(0, Math.min(height - 20, height - (edit.y || 0))),
-              size: Math.max(8, Math.min(72, edit.fontSize || 12)),
-              font: helveticaFont,
-              color: rgb(
-                Math.max(0, Math.min(1, edit.color?.r || 0)),
-                Math.max(0, Math.min(1, edit.color?.g || 0)),
-                Math.max(0, Math.min(1, edit.color?.b || 0))
-              ),
-            });
-            console.log(`Applied text edit: "${edit.text}" at (${edit.x}, ${edit.y})`);
-            break;
+//     // Apply edits based on type
+//     for (const edit of edits) {
+//       try {
+//         switch (edit.type) {
+//           case 'text':
+//             page.drawText(edit.text || '', {
+//               x: Math.max(0, Math.min(width - 50, edit.x || 0)),
+//               y: Math.max(0, Math.min(height - 20, height - (edit.y || 0))),
+//               size: Math.max(8, Math.min(72, edit.fontSize || 12)),
+//               font: helveticaFont,
+//               color: rgb(
+//                 Math.max(0, Math.min(1, edit.color?.r || 0)),
+//                 Math.max(0, Math.min(1, edit.color?.g || 0)),
+//                 Math.max(0, Math.min(1, edit.color?.b || 0))
+//               ),
+//             });
+//             console.log(`Applied text edit: "${edit.text}" at (${edit.x}, ${edit.y})`);
+//             break;
            
-          case 'textEdit':
-            // Draw white rectangle to cover old text
-            if (edit.oldText && edit.fontSize) {
-              const textWidth = (edit.oldText.length * (edit.fontSize || 12) * 0.6);
-              page.drawRectangle({
-                x: Math.max(0, (edit.x || 0) - 2),
-                y: Math.max(0, height - (edit.y || 0) - (edit.fontSize || 12) - 2),
-                width: textWidth + 4,
-                height: (edit.fontSize || 12) + 4,
-                color: rgb(1, 1, 1), // White background
-              });
-            }
+//           case 'textEdit':
+//             // Draw white rectangle to cover old text
+//             if (edit.oldText && edit.fontSize) {
+//               const textWidth = (edit.oldText.length * (edit.fontSize || 12) * 0.6);
+//               page.drawRectangle({
+//                 x: Math.max(0, (edit.x || 0) - 2),
+//                 y: Math.max(0, height - (edit.y || 0) - (edit.fontSize || 12) - 2),
+//                 width: textWidth + 4,
+//                 height: (edit.fontSize || 12) + 4,
+//                 color: rgb(1, 1, 1), // White background
+//               });
+//             }
            
-            // Draw the new text
-            page.drawText(edit.newText || '', {
-              x: Math.max(0, Math.min(width - 50, edit.x || 0)),
-              y: Math.max(0, Math.min(height - 20, height - (edit.y || 0))),
-              size: Math.max(8, Math.min(72, edit.fontSize || 12)),
-              font: helveticaFont,
-              color: rgb(0, 0, 0),
-            });
-            console.log(`Applied text edit: "${edit.oldText}" -> "${edit.newText}"`);
-            break;
+//             // Draw the new text
+//             page.drawText(edit.newText || '', {
+//               x: Math.max(0, Math.min(width - 50, edit.x || 0)),
+//               y: Math.max(0, Math.min(height - 20, height - (edit.y || 0))),
+//               size: Math.max(8, Math.min(72, edit.fontSize || 12)),
+//               font: helveticaFont,
+//               color: rgb(0, 0, 0),
+//             });
+//             console.log(`Applied text edit: "${edit.oldText}" -> "${edit.newText}"`);
+//             break;
            
-          case 'rectangle':
-            page.drawRectangle({
-              x: Math.max(0, edit.x || 0),
-              y: Math.max(0, height - (edit.y || 0) - (edit.height || 0)),
-              width: Math.max(1, Math.min(width, edit.width || 50)),
-              height: Math.max(1, Math.min(height, edit.height || 30)),
-              borderColor: rgb(
-                Math.max(0, Math.min(1, edit.borderColor?.r || 0)),
-                Math.max(0, Math.min(1, edit.borderColor?.g || 0)),
-                Math.max(0, Math.min(1, edit.borderColor?.b || 0))
-              ),
-              borderWidth: Math.max(0.5, Math.min(10, edit.borderWidth || 1)),
-            });
-            console.log(`Applied rectangle at (${edit.x}, ${edit.y})`);
-            break;
+//           case 'rectangle':
+//             page.drawRectangle({
+//               x: Math.max(0, edit.x || 0),
+//               y: Math.max(0, height - (edit.y || 0) - (edit.height || 0)),
+//               width: Math.max(1, Math.min(width, edit.width || 50)),
+//               height: Math.max(1, Math.min(height, edit.height || 30)),
+//               borderColor: rgb(
+//                 Math.max(0, Math.min(1, edit.borderColor?.r || 0)),
+//                 Math.max(0, Math.min(1, edit.borderColor?.g || 0)),
+//                 Math.max(0, Math.min(1, edit.borderColor?.b || 0))
+//               ),
+//               borderWidth: Math.max(0.5, Math.min(10, edit.borderWidth || 1)),
+//             });
+//             console.log(`Applied rectangle at (${edit.x}, ${edit.y})`);
+//             break;
            
-          case 'line':
-            page.drawLine({
-              start: {
-                x: Math.max(0, Math.min(width, edit.startX || 0)),
-                y: Math.max(0, Math.min(height, height - (edit.startY || 0)))
-              },
-              end: {
-                x: Math.max(0, Math.min(width, edit.endX || 0)),
-                y: Math.max(0, Math.min(height, height - (edit.endY || 0)))
-              },
-              thickness: Math.max(0.5, Math.min(10, edit.thickness || 1)),
-              color: rgb(
-                Math.max(0, Math.min(1, edit.color?.r || 0)),
-                Math.max(0, Math.min(1, edit.color?.g || 0)),
-                Math.max(0, Math.min(1, edit.color?.b || 0))
-              ),
-            });
-            console.log(`Applied line from (${edit.startX}, ${edit.startY}) to (${edit.endX}, ${edit.endY})`);
-            break;
+//           case 'line':
+//             page.drawLine({
+//               start: {
+//                 x: Math.max(0, Math.min(width, edit.startX || 0)),
+//                 y: Math.max(0, Math.min(height, height - (edit.startY || 0)))
+//               },
+//               end: {
+//                 x: Math.max(0, Math.min(width, edit.endX || 0)),
+//                 y: Math.max(0, Math.min(height, height - (edit.endY || 0)))
+//               },
+//               thickness: Math.max(0.5, Math.min(10, edit.thickness || 1)),
+//               color: rgb(
+//                 Math.max(0, Math.min(1, edit.color?.r || 0)),
+//                 Math.max(0, Math.min(1, edit.color?.g || 0)),
+//                 Math.max(0, Math.min(1, edit.color?.b || 0))
+//               ),
+//             });
+//             console.log(`Applied line from (${edit.startX}, ${edit.startY}) to (${edit.endX}, ${edit.endY})`);
+//             break;
            
-          default:
-            console.log(`Skipping unknown edit type: ${edit.type}`);
-        }
-      } catch (editError) {
-        console.error(`Error applying edit:`, editError);
-        // Continue with other edits even if one fails
-      }
-    }
+//           default:
+//             console.log(`Skipping unknown edit type: ${edit.type}`);
+//         }
+//       } catch (editError) {
+//         console.error(`Error applying edit:`, editError);
+//         // Continue with other edits even if one fails
+//       }
+//     }
    
-    // Save the modified PDF
-    const pdfBytes = await pdfDoc.save();
-    const editedFileName = `edited-resume-${tokenEmail.replace(/[@.]/g, '_')}-${Date.now()}.pdf`;
-    const editedFilePath = path.join(__dirname, 'uploads', editedFileName);
+//     // Save the modified PDF
+//     const pdfBytes = await pdfDoc.save();
+//     const editedFileName = `edited-resume-${tokenEmail.replace(/[@.]/g, '_')}-${Date.now()}.pdf`;
+//     const editedFilePath = path.join(__dirname, 'uploads', editedFileName);
    
-    // Ensure uploads directory exists
-    if (!fs.existsSync(path.join(__dirname, 'uploads'))) {
-      fs.mkdirSync(path.join(__dirname, 'uploads'), { recursive: true });
-    }
+//     // Ensure uploads directory exists
+//     if (!fs.existsSync(path.join(__dirname, 'uploads'))) {
+//       fs.mkdirSync(path.join(__dirname, 'uploads'), { recursive: true });
+//     }
     
-    fs.writeFileSync(editedFilePath, pdfBytes);
+//     fs.writeFileSync(editedFilePath, pdfBytes);
    
-    console.log(`PDF saved successfully: ${editedFileName}`);
-    console.log(`File size: ${pdfBytes.length} bytes`);
+//     console.log(`PDF saved successfully: ${editedFileName}`);
+//     console.log(`File size: ${pdfBytes.length} bytes`);
    
-    res.json({
-      success: true,
-      message: "PDF edited successfully",
-      fileName: editedFileName,
-      editsApplied: edits.length,
-      filePath: editedFilePath,
-      fileSize: pdfBytes.length
-    });
+//     res.json({
+//       success: true,
+//       message: "PDF edited successfully",
+//       fileName: editedFileName,
+//       editsApplied: edits.length,
+//       filePath: editedFilePath,
+//       fileSize: pdfBytes.length
+//     });
    
-  } catch (error) {
-    console.error("Error editing PDF:", error);
-    console.error("Stack trace:", error.stack);
-    res.status(500).json({
-      success: false,
-      error: error.message,
-      details: "Failed to apply PDF edits",
-      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
-    });
-  }
-});
+//   } catch (error) {
+//     console.error("Error editing PDF:", error);
+//     console.error("Stack trace:", error.stack);
+//     res.status(500).json({
+//       success: false,
+//       error: error.message,
+//       details: "Failed to apply PDF edits",
+//       stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+//     });
+//   }
+// });
 
 
 // Enhanced send-back route to handle the new editing system
@@ -726,1319 +726,1319 @@ app.get("/view", (req, res) => {
   }
 });
 
-app.get("/pdf-viewer", (req, res) => {
-  const { token } = req.query;
+// app.get("/pdf-viewer", (req, res) => {
+//   const { token } = req.query;
 
-  try {
-    const decoded = jwt.verify(token, SECRET_KEY);
-    const tokenEmail = decoded.email;
+//   try {
+//     const decoded = jwt.verify(token, SECRET_KEY);
+//     const tokenEmail = decoded.email;
 
-    const isOwner = tokenEmail === OWNER_EMAIL;
-    const isAuthorizedRecipient = AUTHORIZED_RECIPIENTS.has(tokenEmail) &&
-                                 AUTHORIZED_RECIPIENTS.get(tokenEmail).token === token &&
-                                 AUTHORIZED_RECIPIENTS.get(tokenEmail).canEdit;
+//     const isOwner = tokenEmail === OWNER_EMAIL;
+//     const isAuthorizedRecipient = AUTHORIZED_RECIPIENTS.has(tokenEmail) &&
+//                                  AUTHORIZED_RECIPIENTS.get(tokenEmail).token === token &&
+//                                  AUTHORIZED_RECIPIENTS.get(tokenEmail).canEdit;
 
-    if (!isOwner && !isAuthorizedRecipient) {
-      return res.status(403).send("Access denied");
-    }
+//     if (!isOwner && !isAuthorizedRecipient) {
+//       return res.status(403).send("Access denied");
+//     }
 
-    res.send(`
-      <!DOCTYPE html>
-      <html>
-      <head>
-          <title>Advanced PDF Editor</title>
-          <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-          <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.0/fabric.min.js"></script>
-          <style>
-              * {
-                  box-sizing: border-box;
-                  -webkit-tap-highlight-color: transparent;
-              }
-              body {
-                  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-                  margin: 0;
-                  padding: 10px;
-                  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                  min-height: 100vh;
-                  overflow-x: hidden;
-              }
-              .editor-container {
-                  max-width: 100%;
-                  margin: 0 auto;
-                  display: flex;
-                  flex-direction: column;
-                  gap: 15px;
-                  min-height: 90vh;
-              }
-              .toolbar {
-                  width: 100%;
-                  background: rgba(255,255,255,0.95);
-                  backdrop-filter: blur(10px);
-                  padding: 15px;
-                  border-radius: 15px;
-                  box-shadow: 0 8px 32px rgba(0,0,0,0.1);
-                  border: 1px solid rgba(255,255,255,0.2);
-                  order: 2;
-              }
-              .pdf-editor {
-                  flex: 1;
-                  background: rgba(255,255,255,0.95);
-                  backdrop-filter: blur(10px);
-                  border-radius: 15px;
-                  padding: 15px;
-                  box-shadow: 0 8px 32px rgba(0,0,0,0.1);
-                  border: 1px solid rgba(255,255,255,0.2);
-                  order: 1;
-              }
-              .tool-section {
-                  margin-bottom: 20px;
-                  padding-bottom: 15px;
-                  border-bottom: 2px solid #f0f0f0;
-              }
-              .tool-section h3 {
-                  margin: 0 0 15px 0;
-                  color: #333;
-                  font-size: 16px;
-                  font-weight: 600;
-                  display: flex;
-                  align-items: center;
-                  gap: 8px;
-              }
-              .tools-grid {
-                  display: grid;
-                  grid-template-columns: repeat(2, 1fr);
-                  gap: 8px;
-              }
-              .tool-btn {
-                  padding: 10px 12px;
-                  border: none;
-                  border-radius: 10px;
-                  cursor: pointer;
-                  font-size: 12px;
-                  font-weight: 500;
-                  transition: all 0.3s ease;
-                  display: flex;
-                  align-items: center;
-                  justify-content: center;
-                  gap: 6px;
-                  text-align: center;
-              }
-              .tool-btn.active {
-                  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                  color: white;
-                  transform: translateY(-2px);
-                  box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
-              }
-              .tool-btn:not(.active) {
-                  background: #f8f9fa;
-                  border: 1px solid #dee2e6;
-                  color: #495057;
-              }
-              .tool-btn:hover {
-                  transform: translateY(-2px);
-                  box-shadow: 0 4px 15px rgba(0,0,0,0.1);
-              }
-              .canvas-container {
-                  border: 2px solid #e9ecef;
-                  border-radius: 12px;
-                  overflow: hidden;
-                  position: relative;
-                  box-shadow: 0 4px 20px rgba(0,0,0,0.1);
-                  background: white;
-                  width: 100%;
-                  height: 70vh;
-                  display: flex;
-                  align-items: center;
-                  justify-content: center;
-              }
-              .pdf-canvas {
-                  max-width: 100%;
-                  max-height: 100%;
-                  object-fit: contain;
-              }
-              .color-picker, .size-input, .font-select {
-                  width: 100%;
-                  margin: 6px 0;
-                  padding: 8px;
-                  border: 1px solid #ddd;
-                  border-radius: 8px;
-                  font-size: 14px;
-                  transition: border-color 0.3s ease;
-              }
-              .color-picker:focus, .size-input:focus, .font-select:focus {
-                  outline: none;
-                  border-color: #667eea;
-                  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-              }
-              .save-section {
-                  background: linear-gradient(135deg, #56ab2f 0%, #a8e6cf 100%);
-                  padding: 15px;
-                  border-radius: 12px;
-                  margin-top: 20px;
-                  box-shadow: 0 4px 15px rgba(86, 171, 47, 0.2);
-              }
-              .save-btn {
-                  background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
-                  color: white;
-                  padding: 12px 18px;
-                  border: none;
-                  border-radius: 8px;
-                  cursor: pointer;
-                  font-size: 14px;
-                  font-weight: 600;
-                  width: 100%;
-                  transition: all 0.3s ease;
-                  margin: 5px 0;
-              }
-              .save-btn:hover {
-                  transform: translateY(-2px);
-                  box-shadow: 0 6px 20px rgba(40, 167, 69, 0.3);
-              }
-              .send-btn {
-                  background: linear-gradient(135deg, #17a2b8 0%, #6c5ce7 100%);
-              }
-              .send-btn:hover {
-                  box-shadow: 0 6px 20px rgba(23, 162, 184, 0.3);
-              }
-              .status {
-                  margin: 15px 0;
-                  padding: 12px 15px;
-                  border-radius: 10px;
-                  font-weight: 600;
-                  display: none;
-                  animation: slideIn 0.3s ease;
-                  font-size: 14px;
-              }
-              @keyframes slideIn {
-                  from { opacity: 0; transform: translateY(-10px); }
-                  to { opacity: 1; transform: translateY(0); }
-              }
-              .success {
-                  background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
-                  color: #155724;
-                  border-left: 4px solid #28a745;
-              }
-              .error {
-                  background: linear-gradient(135deg, #f8d7da 0%, #f5c6cb 100%);
-                  color: #721c24;
-                  border-left: 4px solid #dc3545;
-              }
-              .user-info {
-                  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                  color: white;
-                  padding: 12px;
-                  border-radius: 10px;
-                  margin-bottom: 15px;
-                  text-align: center;
-                  font-weight: 600;
-                  font-size: 14px;
-              }
-              .size-display {
-                  display: inline-block;
-                  background: #667eea;
-                  color: white;
-                  padding: 3px 6px;
-                  border-radius: 4px;
-                  font-size: 11px;
-                  margin-left: 6px;
-              }
-              .loading {
-                  display: flex;
-                  flex-direction: column;
-                  align-items: center;
-                  justify-content: center;
-                  height: 100%;
-                  color: #666;
-              }
-              .spinner {
-                  width: 40px;
-                  height: 40px;
-                  border: 4px solid #f3f3f3;
-                  border-top: 4px solid #667eea;
-                  border-radius: 50%;
-                  animation: spin 1s linear infinite;
-                  margin-bottom: 15px;
-              }
-              @keyframes spin {
-                  0% { transform: rotate(0deg); }
-                  100% { transform: rotate(360deg); }
-              }
+//     res.send(`
+//       <!DOCTYPE html>
+//       <html>
+//       <head>
+//           <title>Advanced PDF Editor</title>
+//           <meta name="viewport" content="width=device-width, initial-scale=1.0">
+//           <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+//           <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.0/fabric.min.js"></script>
+//           <style>
+//               * {
+//                   box-sizing: border-box;
+//                   -webkit-tap-highlight-color: transparent;
+//               }
+//               body {
+//                   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+//                   margin: 0;
+//                   padding: 10px;
+//                   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+//                   min-height: 100vh;
+//                   overflow-x: hidden;
+//               }
+//               .editor-container {
+//                   max-width: 100%;
+//                   margin: 0 auto;
+//                   display: flex;
+//                   flex-direction: column;
+//                   gap: 15px;
+//                   min-height: 90vh;
+//               }
+//               .toolbar {
+//                   width: 100%;
+//                   background: rgba(255,255,255,0.95);
+//                   backdrop-filter: blur(10px);
+//                   padding: 15px;
+//                   border-radius: 15px;
+//                   box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+//                   border: 1px solid rgba(255,255,255,0.2);
+//                   order: 2;
+//               }
+//               .pdf-editor {
+//                   flex: 1;
+//                   background: rgba(255,255,255,0.95);
+//                   backdrop-filter: blur(10px);
+//                   border-radius: 15px;
+//                   padding: 15px;
+//                   box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+//                   border: 1px solid rgba(255,255,255,0.2);
+//                   order: 1;
+//               }
+//               .tool-section {
+//                   margin-bottom: 20px;
+//                   padding-bottom: 15px;
+//                   border-bottom: 2px solid #f0f0f0;
+//               }
+//               .tool-section h3 {
+//                   margin: 0 0 15px 0;
+//                   color: #333;
+//                   font-size: 16px;
+//                   font-weight: 600;
+//                   display: flex;
+//                   align-items: center;
+//                   gap: 8px;
+//               }
+//               .tools-grid {
+//                   display: grid;
+//                   grid-template-columns: repeat(2, 1fr);
+//                   gap: 8px;
+//               }
+//               .tool-btn {
+//                   padding: 10px 12px;
+//                   border: none;
+//                   border-radius: 10px;
+//                   cursor: pointer;
+//                   font-size: 12px;
+//                   font-weight: 500;
+//                   transition: all 0.3s ease;
+//                   display: flex;
+//                   align-items: center;
+//                   justify-content: center;
+//                   gap: 6px;
+//                   text-align: center;
+//               }
+//               .tool-btn.active {
+//                   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+//                   color: white;
+//                   transform: translateY(-2px);
+//                   box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+//               }
+//               .tool-btn:not(.active) {
+//                   background: #f8f9fa;
+//                   border: 1px solid #dee2e6;
+//                   color: #495057;
+//               }
+//               .tool-btn:hover {
+//                   transform: translateY(-2px);
+//                   box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+//               }
+//               .canvas-container {
+//                   border: 2px solid #e9ecef;
+//                   border-radius: 12px;
+//                   overflow: hidden;
+//                   position: relative;
+//                   box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+//                   background: white;
+//                   width: 100%;
+//                   height: 70vh;
+//                   display: flex;
+//                   align-items: center;
+//                   justify-content: center;
+//               }
+//               .pdf-canvas {
+//                   max-width: 100%;
+//                   max-height: 100%;
+//                   object-fit: contain;
+//               }
+//               .color-picker, .size-input, .font-select {
+//                   width: 100%;
+//                   margin: 6px 0;
+//                   padding: 8px;
+//                   border: 1px solid #ddd;
+//                   border-radius: 8px;
+//                   font-size: 14px;
+//                   transition: border-color 0.3s ease;
+//               }
+//               .color-picker:focus, .size-input:focus, .font-select:focus {
+//                   outline: none;
+//                   border-color: #667eea;
+//                   box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+//               }
+//               .save-section {
+//                   background: linear-gradient(135deg, #56ab2f 0%, #a8e6cf 100%);
+//                   padding: 15px;
+//                   border-radius: 12px;
+//                   margin-top: 20px;
+//                   box-shadow: 0 4px 15px rgba(86, 171, 47, 0.2);
+//               }
+//               .save-btn {
+//                   background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+//                   color: white;
+//                   padding: 12px 18px;
+//                   border: none;
+//                   border-radius: 8px;
+//                   cursor: pointer;
+//                   font-size: 14px;
+//                   font-weight: 600;
+//                   width: 100%;
+//                   transition: all 0.3s ease;
+//                   margin: 5px 0;
+//               }
+//               .save-btn:hover {
+//                   transform: translateY(-2px);
+//                   box-shadow: 0 6px 20px rgba(40, 167, 69, 0.3);
+//               }
+//               .send-btn {
+//                   background: linear-gradient(135deg, #17a2b8 0%, #6c5ce7 100%);
+//               }
+//               .send-btn:hover {
+//                   box-shadow: 0 6px 20px rgba(23, 162, 184, 0.3);
+//               }
+//               .status {
+//                   margin: 15px 0;
+//                   padding: 12px 15px;
+//                   border-radius: 10px;
+//                   font-weight: 600;
+//                   display: none;
+//                   animation: slideIn 0.3s ease;
+//                   font-size: 14px;
+//               }
+//               @keyframes slideIn {
+//                   from { opacity: 0; transform: translateY(-10px); }
+//                   to { opacity: 1; transform: translateY(0); }
+//               }
+//               .success {
+//                   background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
+//                   color: #155724;
+//                   border-left: 4px solid #28a745;
+//               }
+//               .error {
+//                   background: linear-gradient(135deg, #f8d7da 0%, #f5c6cb 100%);
+//                   color: #721c24;
+//                   border-left: 4px solid #dc3545;
+//               }
+//               .user-info {
+//                   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+//                   color: white;
+//                   padding: 12px;
+//                   border-radius: 10px;
+//                   margin-bottom: 15px;
+//                   text-align: center;
+//                   font-weight: 600;
+//                   font-size: 14px;
+//               }
+//               .size-display {
+//                   display: inline-block;
+//                   background: #667eea;
+//                   color: white;
+//                   padding: 3px 6px;
+//                   border-radius: 4px;
+//                   font-size: 11px;
+//                   margin-left: 6px;
+//               }
+//               .loading {
+//                   display: flex;
+//                   flex-direction: column;
+//                   align-items: center;
+//                   justify-content: center;
+//                   height: 100%;
+//                   color: #666;
+//               }
+//               .spinner {
+//                   width: 40px;
+//                   height: 40px;
+//                   border: 4px solid #f3f3f3;
+//                   border-top: 4px solid #667eea;
+//                   border-radius: 50%;
+//                   animation: spin 1s linear infinite;
+//                   margin-bottom: 15px;
+//               }
+//               @keyframes spin {
+//                   0% { transform: rotate(0deg); }
+//                   100% { transform: rotate(360deg); }
+//               }
              
-              /* Mobile-specific styles */
-              @media (max-width: 768px) {
-                  body {
-                      padding: 5px;
-                  }
-                  .editor-container {
-                      gap: 10px;
-                  }
-                  .toolbar {
-                      padding: 12px;
-                  }
-                  .pdf-editor {
-                      padding: 12px;
-                  }
-                  .canvas-container {
-                      height: 60vh;
-                  }
-                  .tool-btn {
-                      padding: 8px 10px;
-                      font-size: 11px;
-                  }
-                  .tools-grid {
-                      grid-template-columns: repeat(3, 1fr);
-                      gap: 6px;
-                  }
-              }
+//               /* Mobile-specific styles */
+//               @media (max-width: 768px) {
+//                   body {
+//                       padding: 5px;
+//                   }
+//                   .editor-container {
+//                       gap: 10px;
+//                   }
+//                   .toolbar {
+//                       padding: 12px;
+//                   }
+//                   .pdf-editor {
+//                       padding: 12px;
+//                   }
+//                   .canvas-container {
+//                       height: 60vh;
+//                   }
+//                   .tool-btn {
+//                       padding: 8px 10px;
+//                       font-size: 11px;
+//                   }
+//                   .tools-grid {
+//                       grid-template-columns: repeat(3, 1fr);
+//                       gap: 6px;
+//                   }
+//               }
              
-              /* Text editing styles */
-              .text-edit-overlay {
-                  position: absolute;
-                  top: 0;
-                  left: 0;
-                  width: 100%;
-                  height: 100%;
-                  pointer-events: none;
-                  z-index: 20;
-              }
+//               /* Text editing styles */
+//               .text-edit-overlay {
+//                   position: absolute;
+//                   top: 0;
+//                   left: 0;
+//                   width: 100%;
+//                   height: 100%;
+//                   pointer-events: none;
+//                   z-index: 20;
+//               }
              
-              .text-edit-input {
-                  position: absolute;
-                  background: rgba(255, 255, 255, 0.95);
-                  border: 2px solid #667eea;
-                  border-radius: 4px;
-                  padding: 5px;
-                  font-family: Arial, sans-serif;
-                  font-size: 14px;
-                  z-index: 30;
-                  min-width: 100px;
-                  display: none;
-                  pointer-events: auto;
-              }
+//               .text-edit-input {
+//                   position: absolute;
+//                   background: rgba(255, 255, 255, 0.95);
+//                   border: 2px solid #667eea;
+//                   border-radius: 4px;
+//                   padding: 5px;
+//                   font-family: Arial, sans-serif;
+//                   font-size: 14px;
+//                   z-index: 30;
+//                   min-width: 100px;
+//                   display: none;
+//                   pointer-events: auto;
+//               }
              
-              .pdf-content-layer {
-                  position: absolute;
-                  top: 0;
-                  left: 0;
-                  width: 100%;
-                  height: 100%;
-                  z-index: 10;
-                  pointer-events: auto;
-              }
+//               .pdf-content-layer {
+//                   position: absolute;
+//                   top: 0;
+//                   left: 0;
+//                   width: 100%;
+//                   height: 100%;
+//                   z-index: 10;
+//                   pointer-events: auto;
+//               }
              
-              .editable-text {
-                  position: absolute;
-                  border: 1px dashed transparent;
-                  padding: 2px;
-                  cursor: pointer;
-                  transition: all 0.2s ease;
-              }
+//               .editable-text {
+//                   position: absolute;
+//                   border: 1px dashed transparent;
+//                   padding: 2px;
+//                   cursor: pointer;
+//                   transition: all 0.2s ease;
+//               }
              
-              .editable-text:hover {
-                  border-color: #667eea;
-                  background: rgba(102, 126, 234, 0.1);
-              }
+//               .editable-text:hover {
+//                   border-color: #667eea;
+//                   background: rgba(102, 126, 234, 0.1);
+//               }
              
-              .editable-text.editing {
-                  border-color: #28a745;
-                  background: rgba(40, 167, 69, 0.1);
-              }
+//               .editable-text.editing {
+//                   border-color: #28a745;
+//                   background: rgba(40, 167, 69, 0.1);
+//               }
              
-              /* Virtual keyboard for mobile */
-              .virtual-keyboard {
-                  position: fixed;
-                  bottom: 0;
-                  left: 0;
-                  right: 0;
-                  background: white;
-                  padding: 10px;
-                  border-top: 1px solid #ddd;
-                  display: none;
-                  z-index: 1000;
-                  box-shadow: 0 -4px 20px rgba(0,0,0,0.1);
-              }
+//               /* Virtual keyboard for mobile */
+//               .virtual-keyboard {
+//                   position: fixed;
+//                   bottom: 0;
+//                   left: 0;
+//                   right: 0;
+//                   background: white;
+//                   padding: 10px;
+//                   border-top: 1px solid #ddd;
+//                   display: none;
+//                   z-index: 1000;
+//                   box-shadow: 0 -4px 20px rgba(0,0,0,0.1);
+//               }
              
-              .virtual-keyboard.show {
-                  display: block;
-              }
+//               .virtual-keyboard.show {
+//                   display: block;
+//               }
              
-              .keyboard-input {
-                  width: 100%;
-                  padding: 12px;
-                  border: 1px solid #ddd;
-                  border-radius: 8px;
-                  font-size: 16px;
-                  margin-bottom: 10px;
-              }
+//               .keyboard-input {
+//                   width: 100%;
+//                   padding: 12px;
+//                   border: 1px solid #ddd;
+//                   border-radius: 8px;
+//                   font-size: 16px;
+//                   margin-bottom: 10px;
+//               }
              
-              .keyboard-actions {
-                  display: flex;
-                  gap: 10px;
-              }
+//               .keyboard-actions {
+//                   display: flex;
+//                   gap: 10px;
+//               }
              
-              .keyboard-btn {
-                  flex: 1;
-                  padding: 10px;
-                  border: none;
-                  border-radius: 6px;
-                  font-weight: 600;
-                  cursor: pointer;
-              }
+//               .keyboard-btn {
+//                   flex: 1;
+//                   padding: 10px;
+//                   border: none;
+//                   border-radius: 6px;
+//                   font-weight: 600;
+//                   cursor: pointer;
+//               }
              
-              .keyboard-btn.primary {
-                  background: #28a745;
-                  color: white;
-              }
+//               .keyboard-btn.primary {
+//                   background: #28a745;
+//                   color: white;
+//               }
              
-              .keyboard-btn.secondary {
-                  background: #6c757d;
-                  color: white;
-              }
+//               .keyboard-btn.secondary {
+//                   background: #6c757d;
+//                   color: white;
+//               }
              
-              /* Dropdown Menu Styles */
-              .dropdown-menu {
-                  position: relative;
-                  display: inline-block;
-              }
+//               /* Dropdown Menu Styles */
+//               .dropdown-menu {
+//                   position: relative;
+//                   display: inline-block;
+//               }
              
-              .dropdown-btn {
-                  background: #667eea;
-                  color: white;
-                  border: none;
-                  padding: 8px 12px;
-                  border-radius: 6px;
-                  cursor: pointer;
-                  font-size: 18px;
-                  transition: all 0.3s ease;
-              }
+//               .dropdown-btn {
+//                   background: #667eea;
+//                   color: white;
+//                   border: none;
+//                   padding: 8px 12px;
+//                   border-radius: 6px;
+//                   cursor: pointer;
+//                   font-size: 18px;
+//                   transition: all 0.3s ease;
+//               }
              
-              .dropdown-btn:hover {
-                  background: #5a6fd8;
-                  transform: translateY(-1px);
-              }
+//               .dropdown-btn:hover {
+//                   background: #5a6fd8;
+//                   transform: translateY(-1px);
+//               }
              
-              .dropdown-content {
-                  display: none;
-                  position: absolute;
-                  right: 0;
-                  background: white;
-                  min-width: 180px;
-                  box-shadow: 0 8px 25px rgba(0,0,0,0.15);
-                  border-radius: 8px;
-                  z-index: 1000;
-                  border: 1px solid #e0e0e0;
-                  overflow: hidden;
-              }
+//               .dropdown-content {
+//                   display: none;
+//                   position: absolute;
+//                   right: 0;
+//                   background: white;
+//                   min-width: 180px;
+//                   box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+//                   border-radius: 8px;
+//                   z-index: 1000;
+//                   border: 1px solid #e0e0e0;
+//                   overflow: hidden;
+//               }
              
-              .dropdown-content.show {
-                  display: block;
-                  animation: slideDown 0.2s ease;
-              }
+//               .dropdown-content.show {
+//                   display: block;
+//                   animation: slideDown 0.2s ease;
+//               }
              
-              @keyframes slideDown {
-                  from { opacity: 0; transform: translateY(-10px); }
-                  to { opacity: 1; transform: translateY(0); }
-              }
+//               @keyframes slideDown {
+//                   from { opacity: 0; transform: translateY(-10px); }
+//                   to { opacity: 1; transform: translateY(0); }
+//               }
              
-              .dropdown-content a {
-                  color: #333;
-                  padding: 12px 16px;
-                  text-decoration: none;
-                  display: block;
-                  transition: background-color 0.2s ease;
-                  border-bottom: 1px solid #f0f0f0;
-                  cursor: pointer;
-              }
+//               .dropdown-content a {
+//                   color: #333;
+//                   padding: 12px 16px;
+//                   text-decoration: none;
+//                   display: block;
+//                   transition: background-color 0.2s ease;
+//                   border-bottom: 1px solid #f0f0f0;
+//                   cursor: pointer;
+//               }
              
-              .dropdown-content a:last-child {
-                  border-bottom: none;
-              }
+//               .dropdown-content a:last-child {
+//                   border-bottom: none;
+//               }
              
-              .dropdown-content a:hover {
-                  background-color: #f8f9fa;
-                  color: #667eea;
-              }
-          </style>
-      </head>
-      <body>
-          <div class="editor-container">
-              <div class="pdf-editor">
-                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                      <h2 style="margin: 0; color: #333; font-size: 18px;">
-                          PDF Interactive Editor
-                      </h2>
-                      <div class="dropdown-menu">
-                          <button class="dropdown-btn" onclick="toggleDropdown()">⋮</button>
-                          <div class="dropdown-content" id="dropdownContent">
-                              <a onclick="saveChanges()">💾 Save Changes</a>
-                              <a onclick="sendToOwner()">📤 Send to Owner</a>
-                          </div>
-                      </div>
-                  </div>
-                  <div class="canvas-container" id="canvasContainer">
-                      <div class="loading" id="loadingIndicator">
-                          <div class="spinner"></div>
-                          <p>Loading PDF...</p>
-                      </div>
-                      <canvas id="pdfCanvas" class="pdf-canvas" style="display: none;"></canvas>
-                      <canvas id="editCanvas" style="position: absolute; top: 0; left: 0; z-index: 10; display: none;"></canvas>
-                      <div class="pdf-content-layer" id="pdfContentLayer"></div>
-                      <input type="text" id="textEditInput" class="text-edit-input" placeholder="Enter text...">
-                  </div>
-                  <div id="status"></div>
-              </div>
+//               .dropdown-content a:hover {
+//                   background-color: #f8f9fa;
+//                   color: #667eea;
+//               }
+//           </style>
+//       </head>
+//       <body>
+//           <div class="editor-container">
+//               <div class="pdf-editor">
+//                   <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+//                       <h2 style="margin: 0; color: #333; font-size: 18px;">
+//                           PDF Interactive Editor
+//                       </h2>
+//                       <div class="dropdown-menu">
+//                           <button class="dropdown-btn" onclick="toggleDropdown()">⋮</button>
+//                           <div class="dropdown-content" id="dropdownContent">
+//                               <a onclick="saveChanges()">💾 Save Changes</a>
+//                               <a onclick="sendToOwner()">📤 Send to Owner</a>
+//                           </div>
+//                       </div>
+//                   </div>
+//                   <div class="canvas-container" id="canvasContainer">
+//                       <div class="loading" id="loadingIndicator">
+//                           <div class="spinner"></div>
+//                           <p>Loading PDF...</p>
+//                       </div>
+//                       <canvas id="pdfCanvas" class="pdf-canvas" style="display: none;"></canvas>
+//                       <canvas id="editCanvas" style="position: absolute; top: 0; left: 0; z-index: 10; display: none;"></canvas>
+//                       <div class="pdf-content-layer" id="pdfContentLayer"></div>
+//                       <input type="text" id="textEditInput" class="text-edit-input" placeholder="Enter text...">
+//                   </div>
+//                   <div id="status"></div>
+//               </div>
              
-              <div class="toolbar">
-                  <div class="user-info">
-                      PDF Editor<br>
-                      <small>User: ${tokenEmail}</small>
-                  </div>
+//               <div class="toolbar">
+//                   <div class="user-info">
+//                       PDF Editor<br>
+//                       <small>User: ${tokenEmail}</small>
+//                   </div>
                  
-                  <div class="tool-section">
-                      <h3>Tools</h3>
-                      <div class="tools-grid">
-                          <button class="tool-btn active" onclick="setTool('edit')">
-                              Edit Text
-                          </button>
-                          <button class="tool-btn" onclick="setTool('add')">
-                              Add Text
-                          </button>
-                          <button class="tool-btn" onclick="setTool('draw')">
-                              Draw
-                          </button>
-                          <button class="tool-btn" onclick="setTool('rectangle')">
-                              Rectangle
-                          </button>
-                          <button class="tool-btn" onclick="setTool('line')">
-                              Line
-                          </button>
-                          <button class="tool-btn" onclick="clearCanvas()">
-                              Clear
-                          </button>
-                      </div>
-                  </div>
+//                   <div class="tool-section">
+//                       <h3>Tools</h3>
+//                       <div class="tools-grid">
+//                           <button class="tool-btn active" onclick="setTool('edit')">
+//                               Edit Text
+//                           </button>
+//                           <button class="tool-btn" onclick="setTool('add')">
+//                               Add Text
+//                           </button>
+//                           <button class="tool-btn" onclick="setTool('draw')">
+//                               Draw
+//                           </button>
+//                           <button class="tool-btn" onclick="setTool('rectangle')">
+//                               Rectangle
+//                           </button>
+//                           <button class="tool-btn" onclick="setTool('line')">
+//                               Line
+//                           </button>
+//                           <button class="tool-btn" onclick="clearCanvas()">
+//                               Clear
+//                           </button>
+//                       </div>
+//                   </div>
                  
-                  <div class="tool-section">
-                      <h3>Properties</h3>
-                      <label style="font-size: 12px;">Color:</label>
-                      <input type="color" class="color-picker" id="colorPicker" value="#000000">
+//                   <div class="tool-section">
+//                       <h3>Properties</h3>
+//                       <label style="font-size: 12px;">Color:</label>
+//                       <input type="color" class="color-picker" id="colorPicker" value="#000000">
                      
-                      <label style="font-size: 12px;">Size:</label>
-                      <input type="range" class="size-input" id="sizeSlider" min="1" max="50" value="12">
-                      <span class="size-display" id="sizeDisplay">12px</span>
+//                       <label style="font-size: 12px;">Size:</label>
+//                       <input type="range" class="size-input" id="sizeSlider" min="1" max="50" value="12">
+//                       <span class="size-display" id="sizeDisplay">12px</span>
                      
-                      <label style="font-size: 12px;">Font:</label>
-                      <select id="fontSize" class="font-select">
-                          <option value="10">10pt</option>
-                          <option value="12" selected>12pt</option>
-                          <option value="14">14pt</option>
-                          <option value="16">16pt</option>
-                          <option value="18">18pt</option>
-                          <option value="20">20pt</option>
-                          <option value="24">24pt</option>
-                      </select>
-                  </div>
-              </div>
-          </div>
+//                       <label style="font-size: 12px;">Font:</label>
+//                       <select id="fontSize" class="font-select">
+//                           <option value="10">10pt</option>
+//                           <option value="12" selected>12pt</option>
+//                           <option value="14">14pt</option>
+//                           <option value="16">16pt</option>
+//                           <option value="18">18pt</option>
+//                           <option value="20">20pt</option>
+//                           <option value="24">24pt</option>
+//                       </select>
+//                   </div>
+//               </div>
+//           </div>
          
-          <!-- Virtual Keyboard for Mobile -->
-          <div class="virtual-keyboard" id="virtualKeyboard">
-              <input type="text" class="keyboard-input" id="keyboardInput" placeholder="Type your text here...">
-              <div class="keyboard-actions">
-                  <button class="keyboard-btn primary" onclick="applyKeyboardText()">Apply</button>
-                  <button class="keyboard-btn secondary" onclick="closeVirtualKeyboard()">Cancel</button>
-              </div>
-          </div>
+//           <!-- Virtual Keyboard for Mobile -->
+//           <div class="virtual-keyboard" id="virtualKeyboard">
+//               <input type="text" class="keyboard-input" id="keyboardInput" placeholder="Type your text here...">
+//               <div class="keyboard-actions">
+//                   <button class="keyboard-btn primary" onclick="applyKeyboardText()">Apply</button>
+//                   <button class="keyboard-btn secondary" onclick="closeVirtualKeyboard()">Cancel</button>
+//               </div>
+//           </div>
          
-          <script>
-              // Global variables
-              const AUTH_TOKEN = '${token}';
-              const IS_OWNER = ${isOwner ? 'true' : 'false'};
-              let pdfDoc = null;
-              let fabricCanvas = null;
-              let currentTool = 'edit';
-              let editHistory = [];
-              let pdfTextElements = [];
-              let currentEditingElement = null;
-              const isMobile = /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+//           <script>
+//               // Global variables
+//               const AUTH_TOKEN = '${token}';
+//               const IS_OWNER = ${isOwner ? 'true' : 'false'};
+//               let pdfDoc = null;
+//               let fabricCanvas = null;
+//               let currentTool = 'edit';
+//               let editHistory = [];
+//               let pdfTextElements = [];
+//               let currentEditingElement = null;
+//               const isMobile = /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
              
-              // PDF.js configuration
-              pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+//               // PDF.js configuration
+//               pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
              
-              // Initialize application
-              document.addEventListener('DOMContentLoaded', function() {
-                  initializeApp();
-                  setupEventListeners();
+//               // Initialize application
+//               document.addEventListener('DOMContentLoaded', function() {
+//                   initializeApp();
+//                   setupEventListeners();
                  
-                  // Close dropdown when clicking outside
-                  document.addEventListener('click', function(event) {
-                      const dropdown = document.querySelector('.dropdown-menu');
-                      if (!dropdown.contains(event.target)) {
-                          document.getElementById('dropdownContent').classList.remove('show');
-                      }
-                  });
-              });
+//                   // Close dropdown when clicking outside
+//                   document.addEventListener('click', function(event) {
+//                       const dropdown = document.querySelector('.dropdown-menu');
+//                       if (!dropdown.contains(event.target)) {
+//                           document.getElementById('dropdownContent').classList.remove('show');
+//                       }
+//                   });
+//               });
              
-              function initializeApp() {
-                  showStatus('Initializing PDF Editor...', 'success');
-                  loadPDF();
-                  setupMobileSupport();
-              }
+//               function initializeApp() {
+//                   showStatus('Initializing PDF Editor...', 'success');
+//                   loadPDF();
+//                   setupMobileSupport();
+//               }
              
-              function setupEventListeners() {
-                  // Size slider
-                  document.getElementById('sizeSlider').addEventListener('input', function() {
-                      document.getElementById('sizeDisplay').textContent = this.value + 'px';
-                      updateBrushSettings();
-                  });
+//               function setupEventListeners() {
+//                   // Size slider
+//                   document.getElementById('sizeSlider').addEventListener('input', function() {
+//                       document.getElementById('sizeDisplay').textContent = this.value + 'px';
+//                       updateBrushSettings();
+//                   });
                  
-                  // Color picker
-                  document.getElementById('colorPicker').addEventListener('change', function() {
-                      updateBrushSettings();
-                  });
+//                   // Color picker
+//                   document.getElementById('colorPicker').addEventListener('change', function() {
+//                       updateBrushSettings();
+//                   });
                  
-                  // Window resize
-                  window.addEventListener('resize', handleWindowResize);
+//                   // Window resize
+//                   window.addEventListener('resize', handleWindowResize);
                  
-                  // Prevent context menu on long press for mobile
-                  if (isMobile) {
-                      document.addEventListener('contextmenu', function(e) {
-                          e.preventDefault();
-                      });
-                  }
-              }
+//                   // Prevent context menu on long press for mobile
+//                   if (isMobile) {
+//                       document.addEventListener('contextmenu', function(e) {
+//                           e.preventDefault();
+//                       });
+//                   }
+//               }
              
-              function updateBrushSettings() {
-                  if (fabricCanvas && fabricCanvas.isDrawingMode) {
-                      fabricCanvas.freeDrawingBrush.width = parseInt(document.getElementById('sizeSlider').value);
-                      fabricCanvas.freeDrawingBrush.color = document.getElementById('colorPicker').value;
-                  }
-              }
+//               function updateBrushSettings() {
+//                   if (fabricCanvas && fabricCanvas.isDrawingMode) {
+//                       fabricCanvas.freeDrawingBrush.width = parseInt(document.getElementById('sizeSlider').value);
+//                       fabricCanvas.freeDrawingBrush.color = document.getElementById('colorPicker').value;
+//                   }
+//               }
              
-              async function loadPDF() {
-                  try {
-                      showLoadingState(true);
-                      showStatus('Loading PDF document...', 'success');
+//               async function loadPDF() {
+//                   try {
+//                       showLoadingState(true);
+//                       showStatus('Loading PDF document...', 'success');
                      
-                      // Validate token
-                      if (!AUTH_TOKEN || AUTH_TOKEN.trim() === '') {
-                          throw new Error('Authentication token is missing');
-                      }
+//                       // Validate token
+//                       if (!AUTH_TOKEN || AUTH_TOKEN.trim() === '') {
+//                           throw new Error('Authentication token is missing');
+//                       }
                      
-                      // Load PDF with proper template literal syntax
-                      const pdfUrl = \`/pdf-content?token=\${AUTH_TOKEN}\`;
-                      console.log('Loading PDF from:', pdfUrl);
+//                       // Load PDF with proper template literal syntax
+//                       const pdfUrl = \`/pdf-content?token=\${AUTH_TOKEN}\`;
+//                       console.log('Loading PDF from:', pdfUrl);
                      
-                      const loadingTask = pdfjsLib.getDocument(pdfUrl);
+//                       const loadingTask = pdfjsLib.getDocument(pdfUrl);
                      
-                      // Add progress tracking
-                      loadingTask.onProgress = function(progress) {
-                          if (progress.total > 0) {
-                              const percent = Math.round((progress.loaded / progress.total) * 100);
-                              showStatus(\`Loading PDF... \${percent}%\`, 'success');
-                          }
-                      };
+//                       // Add progress tracking
+//                       loadingTask.onProgress = function(progress) {
+//                           if (progress.total > 0) {
+//                               const percent = Math.round((progress.loaded / progress.total) * 100);
+//                               showStatus(\`Loading PDF... \${percent}%\`, 'success');
+//                           }
+//                       };
                      
-                      pdfDoc = await loadingTask.promise;
-                      showStatus('PDF loaded successfully! Click text to edit or use tools to add content.', 'success');
-                      await renderPage(1);
-                      showLoadingState(false);
+//                       pdfDoc = await loadingTask.promise;
+//                       showStatus('PDF loaded successfully! Click text to edit or use tools to add content.', 'success');
+//                       await renderPage(1);
+//                       showLoadingState(false);
                      
-                  } catch (error) {
-                      console.error('PDF loading error:', error);
-                      showLoadingState(false);
+//                   } catch (error) {
+//                       console.error('PDF loading error:', error);
+//                       showLoadingState(false);
                      
-                      // Provide specific error messages
-                      let errorMessage = 'Error loading PDF: ';
-                      if (error.name === 'InvalidPDFException') {
-                          errorMessage += 'The file is not a valid PDF document.';
-                      } else if (error.name === 'MissingPDFException') {
-                          errorMessage += 'PDF file not found. Please check the file exists.';
-                      } else if (error.name === 'UnexpectedResponseException') {
-                          errorMessage += 'Server returned an unexpected response. Please try again.';
-                      } else if (error.message.includes('Authentication')) {
-                          errorMessage += 'Authentication failed. Please check your access token.';
-                      } else {
-                          errorMessage += error.message;
-                      }
+//                       // Provide specific error messages
+//                       let errorMessage = 'Error loading PDF: ';
+//                       if (error.name === 'InvalidPDFException') {
+//                           errorMessage += 'The file is not a valid PDF document.';
+//                       } else if (error.name === 'MissingPDFException') {
+//                           errorMessage += 'PDF file not found. Please check the file exists.';
+//                       } else if (error.name === 'UnexpectedResponseException') {
+//                           errorMessage += 'Server returned an unexpected response. Please try again.';
+//                       } else if (error.message.includes('Authentication')) {
+//                           errorMessage += 'Authentication failed. Please check your access token.';
+//                       } else {
+//                           errorMessage += error.message;
+//                       }
                      
-                      showStatus(errorMessage, 'error');
-                  }
-              }
+//                       showStatus(errorMessage, 'error');
+//                   }
+//               }
              
-              function showLoadingState(isLoading) {
-                  const loadingIndicator = document.getElementById('loadingIndicator');
-                  const pdfCanvas = document.getElementById('pdfCanvas');
-                  const editCanvas = document.getElementById('editCanvas');
+//               function showLoadingState(isLoading) {
+//                   const loadingIndicator = document.getElementById('loadingIndicator');
+//                   const pdfCanvas = document.getElementById('pdfCanvas');
+//                   const editCanvas = document.getElementById('editCanvas');
                  
-                  if (isLoading) {
-                      loadingIndicator.style.display = 'flex';
-                      pdfCanvas.style.display = 'none';
-                      editCanvas.style.display = 'none';
-                  } else {
-                      loadingIndicator.style.display = 'none';
-                      pdfCanvas.style.display = 'block';
-                      editCanvas.style.display = 'block';
-                  }
-              }
+//                   if (isLoading) {
+//                       loadingIndicator.style.display = 'flex';
+//                       pdfCanvas.style.display = 'none';
+//                       editCanvas.style.display = 'none';
+//                   } else {
+//                       loadingIndicator.style.display = 'none';
+//                       pdfCanvas.style.display = 'block';
+//                       editCanvas.style.display = 'block';
+//                   }
+//               }
              
-              async function renderPage(pageNum) {
-                  try {
-                      const page = await pdfDoc.getPage(pageNum);
+//               async function renderPage(pageNum) {
+//                   try {
+//                       const page = await pdfDoc.getPage(pageNum);
                      
-                      // Calculate appropriate scale
-                      const container = document.querySelector('.canvas-container');
-                      const containerWidth = container.clientWidth - 4;
-                      const containerHeight = container.clientHeight - 4;
-                      const viewport = page.getViewport({ scale: 1 });
+//                       // Calculate appropriate scale
+//                       const container = document.querySelector('.canvas-container');
+//                       const containerWidth = container.clientWidth - 4;
+//                       const containerHeight = container.clientHeight - 4;
+//                       const viewport = page.getViewport({ scale: 1 });
                      
-                      let scale = Math.min(
-                          containerWidth / viewport.width,
-                          containerHeight / viewport.height,
-                          2.0 // Maximum scale
-                      );
+//                       let scale = Math.min(
+//                           containerWidth / viewport.width,
+//                           containerHeight / viewport.height,
+//                           2.0 // Maximum scale
+//                       );
                      
-                      // Ensure minimum scale for readability
-                      scale = Math.max(scale, 0.5);
+//                       // Ensure minimum scale for readability
+//                       scale = Math.max(scale, 0.5);
                      
-                      const scaledViewport = page.getViewport({ scale: scale });
+//                       const scaledViewport = page.getViewport({ scale: scale });
                      
-                      // Setup canvases
-                      const pdfCanvas = document.getElementById('pdfCanvas');
-                      const editCanvas = document.getElementById('editCanvas');
+//                       // Setup canvases
+//                       const pdfCanvas = document.getElementById('pdfCanvas');
+//                       const editCanvas = document.getElementById('editCanvas');
                      
-                      pdfCanvas.width = scaledViewport.width;
-                      pdfCanvas.height = scaledViewport.height;
-                      editCanvas.width = scaledViewport.width;
-                      editCanvas.height = scaledViewport.height;
+//                       pdfCanvas.width = scaledViewport.width;
+//                       pdfCanvas.height = scaledViewport.height;
+//                       editCanvas.width = scaledViewport.width;
+//                       editCanvas.height = scaledViewport.height;
                      
-                      // Render PDF
-                      const context = pdfCanvas.getContext('2d');
-                      await page.render({
-                          canvasContext: context,
-                          viewport: scaledViewport
-                      }).promise;
+//                       // Render PDF
+//                       const context = pdfCanvas.getContext('2d');
+//                       await page.render({
+//                           canvasContext: context,
+//                           viewport: scaledViewport
+//                       }).promise;
                      
-                      // Extract text content for editing
-                      await extractTextContent(page, scaledViewport);
+//                       // Extract text content for editing
+//                       await extractTextContent(page, scaledViewport);
                      
-                      // Initialize Fabric.js canvas
-                      initializeFabricCanvas(scaledViewport);
+//                       // Initialize Fabric.js canvas
+//                       initializeFabricCanvas(scaledViewport);
                      
-                      showStatus('PDF page rendered successfully!', 'success');
+//                       showStatus('PDF page rendered successfully!', 'success');
                      
-                  } catch (error) {
-                      console.error('Error rendering page:', error);
-                      showStatus('Error rendering PDF page: ' + error.message, 'error');
-                  }
-              }
+//                   } catch (error) {
+//                       console.error('Error rendering page:', error);
+//                       showStatus('Error rendering PDF page: ' + error.message, 'error');
+//                   }
+//               }
              
-              function initializeFabricCanvas(viewport) {
-                  if (fabricCanvas) {
-                      fabricCanvas.dispose();
-                  }
+//               function initializeFabricCanvas(viewport) {
+//                   if (fabricCanvas) {
+//                       fabricCanvas.dispose();
+//                   }
                  
-                  fabricCanvas = new fabric.Canvas('editCanvas', {
-                      width: viewport.width,
-                      height: viewport.height,
-                      backgroundColor: 'transparent',
-                      selection: true
-                  });
+//                   fabricCanvas = new fabric.Canvas('editCanvas', {
+//                       width: viewport.width,
+//                       height: viewport.height,
+//                       backgroundColor: 'transparent',
+//                       selection: true
+//                   });
                  
-                  // Setup initial canvas events
-                  setupCanvasEvents();
-              }
+//                   // Setup initial canvas events
+//                   setupCanvasEvents();
+//               }
              
-              async function extractTextContent(page, viewport) {
-                  try {
-                      const textContent = await page.getTextContent();
-                      const contentLayer = document.getElementById('pdfContentLayer');
-                      contentLayer.innerHTML = '';
-                      contentLayer.style.width = viewport.width + 'px';
-                      contentLayer.style.height = viewport.height + 'px';
-                      pdfTextElements = [];
+//               async function extractTextContent(page, viewport) {
+//                   try {
+//                       const textContent = await page.getTextContent();
+//                       const contentLayer = document.getElementById('pdfContentLayer');
+//                       contentLayer.innerHTML = '';
+//                       contentLayer.style.width = viewport.width + 'px';
+//                       contentLayer.style.height = viewport.height + 'px';
+//                       pdfTextElements = [];
                      
-                      textContent.items.forEach((item, index) => {
-                          if (item.str && item.str.trim()) {
-                              const transform = pdfjsLib.Util.transform(viewport.transform, item.transform);
+//                       textContent.items.forEach((item, index) => {
+//                           if (item.str && item.str.trim()) {
+//                               const transform = pdfjsLib.Util.transform(viewport.transform, item.transform);
                              
-                              const textElement = document.createElement('div');
-                              textElement.className = 'editable-text';
-                              textElement.style.left = transform[4] + 'px';
-                              textElement.style.top = (viewport.height - transform[5] - item.height) + 'px';
-                              textElement.style.fontSize = Math.abs(item.height) + 'px';
-                              textElement.style.fontFamily = item.fontName || 'Arial';
-                              textElement.textContent = item.str;
-                              textElement.dataset.originalText = item.str;
-                              textElement.dataset.index = index;
+//                               const textElement = document.createElement('div');
+//                               textElement.className = 'editable-text';
+//                               textElement.style.left = transform[4] + 'px';
+//                               textElement.style.top = (viewport.height - transform[5] - item.height) + 'px';
+//                               textElement.style.fontSize = Math.abs(item.height) + 'px';
+//                               textElement.style.fontFamily = item.fontName || 'Arial';
+//                               textElement.textContent = item.str;
+//                               textElement.dataset.originalText = item.str;
+//                               textElement.dataset.index = index;
                              
-                              textElement.addEventListener('click', function(e) {
-                                  e.stopPropagation();
-                                  if (currentTool === 'edit') {
-                                      startTextEdit(textElement);
-                                  }
-                              });
+//                               textElement.addEventListener('click', function(e) {
+//                                   e.stopPropagation();
+//                                   if (currentTool === 'edit') {
+//                                       startTextEdit(textElement);
+//                                   }
+//                               });
                              
-                              contentLayer.appendChild(textElement);
-                              pdfTextElements.push({
-                                  element: textElement,
-                                  originalText: item.str,
-                                  x: transform[4],
-                                  y: viewport.height - transform[5] - item.height,
-                                  fontSize: Math.abs(item.height),
-                                  fontFamily: item.fontName || 'Arial'
-                              });
-                          }
-                      });
+//                               contentLayer.appendChild(textElement);
+//                               pdfTextElements.push({
+//                                   element: textElement,
+//                                   originalText: item.str,
+//                                   x: transform[4],
+//                                   y: viewport.height - transform[5] - item.height,
+//                                   fontSize: Math.abs(item.height),
+//                                   fontFamily: item.fontName || 'Arial'
+//                               });
+//                           }
+//                       });
                      
-                      // Setup content layer click handler for adding text
-                      contentLayer.addEventListener('click', function(e) {
-                          if (currentTool === 'add' && e.target === contentLayer) {
-                              addNewText(e);
-                          }
-                      });
+//                       // Setup content layer click handler for adding text
+//                       contentLayer.addEventListener('click', function(e) {
+//                           if (currentTool === 'add' && e.target === contentLayer) {
+//                               addNewText(e);
+//                           }
+//                       });
                      
-                  } catch (error) {
-                      console.error('Error extracting text content:', error);
-                      showStatus('Warning: Could not extract text for editing', 'error');
-                  }
-              }
+//                   } catch (error) {
+//                       console.error('Error extracting text content:', error);
+//                       showStatus('Warning: Could not extract text for editing', 'error');
+//                   }
+//               }
              
-              function setupCanvasEvents() {
-                  if (!fabricCanvas) return;
+//               function setupCanvasEvents() {
+//                   if (!fabricCanvas) return;
                  
-                  // Clear existing events
-                  fabricCanvas.off();
+//                   // Clear existing events
+//                   fabricCanvas.off();
                  
-                  if (currentTool === 'draw') {
-                      fabricCanvas.isDrawingMode = true;
-                      updateBrushSettings();
-                  } else {
-                      fabricCanvas.isDrawingMode = false;
+//                   if (currentTool === 'draw') {
+//                       fabricCanvas.isDrawingMode = true;
+//                       updateBrushSettings();
+//                   } else {
+//                       fabricCanvas.isDrawingMode = false;
                      
-                      if (currentTool === 'rectangle') {
-                          fabricCanvas.on('mouse:down', startRectangle);
-                      } else if (currentTool === 'line') {
-                          fabricCanvas.on('mouse:down', startLine);
-                      }
-                  }
-              }
+//                       if (currentTool === 'rectangle') {
+//                           fabricCanvas.on('mouse:down', startRectangle);
+//                       } else if (currentTool === 'line') {
+//                           fabricCanvas.on('mouse:down', startLine);
+//                       }
+//                   }
+//               }
              
-              function setTool(tool) {
-                  currentTool = tool;
+//               function setTool(tool) {
+//                   currentTool = tool;
                  
-                  // Update UI
-                  document.querySelectorAll('.tool-btn').forEach(btn => btn.classList.remove('active'));
-                  event.target.classList.add('active');
+//                   // Update UI
+//                   document.querySelectorAll('.tool-btn').forEach(btn => btn.classList.remove('active'));
+//                   event.target.classList.add('active');
                  
-                  // Setup canvas for new tool
-                  setupCanvasEvents();
+//                   // Setup canvas for new tool
+//                   setupCanvasEvents();
                  
-                  // Show appropriate status message
-                  const messages = {
-                      'edit': 'Edit mode: Click on any text to modify it',
-                      'add': 'Add mode: Click anywhere to add new text',
-                      'draw': 'Draw mode: Draw freely on the PDF',
-                      'rectangle': 'Rectangle mode: Click to add rectangles',
-                      'line': 'Line mode: Click to add lines'
-                  };
+//                   // Show appropriate status message
+//                   const messages = {
+//                       'edit': 'Edit mode: Click on any text to modify it',
+//                       'add': 'Add mode: Click anywhere to add new text',
+//                       'draw': 'Draw mode: Draw freely on the PDF',
+//                       'rectangle': 'Rectangle mode: Click to add rectangles',
+//                       'line': 'Line mode: Click to add lines'
+//                   };
                  
-                  showStatus(messages[tool] || 'Tool selected', 'success');
-              }
+//                   showStatus(messages[tool] || 'Tool selected', 'success');
+//               }
              
-              function startTextEdit(element) {
-                  if (currentEditingElement) {
-                      currentEditingElement.classList.remove('editing');
-                  }
+//               function startTextEdit(element) {
+//                   if (currentEditingElement) {
+//                       currentEditingElement.classList.remove('editing');
+//                   }
                  
-                  currentEditingElement = element;
-                  element.classList.add('editing');
+//                   currentEditingElement = element;
+//                   element.classList.add('editing');
                  
-                  if (isMobile) {
-                      showVirtualKeyboard(element.textContent);
-                  } else {
-                      showDesktopTextInput(element);
-                  }
-              }
+//                   if (isMobile) {
+//                       showVirtualKeyboard(element.textContent);
+//                   } else {
+//                       showDesktopTextInput(element);
+//                   }
+//               }
              
-              function showDesktopTextInput(element) {
-                  const textInput = document.getElementById('textEditInput');
-                  const rect = element.getBoundingClientRect();
-                  const containerRect = document.querySelector('.canvas-container').getBoundingClientRect();
+//               function showDesktopTextInput(element) {
+//                   const textInput = document.getElementById('textEditInput');
+//                   const rect = element.getBoundingClientRect();
+//                   const containerRect = document.querySelector('.canvas-container').getBoundingClientRect();
                  
-                  textInput.style.display = 'block';
-                  textInput.style.left = (rect.left - containerRect.left) + 'px';
-                  textInput.style.top = (rect.top - containerRect.top) + 'px';
-                  textInput.style.fontSize = element.style.fontSize;
-                  textInput.value = element.textContent;
-                  textInput.focus();
-                  textInput.select();
+//                   textInput.style.display = 'block';
+//                   textInput.style.left = (rect.left - containerRect.left) + 'px';
+//                   textInput.style.top = (rect.top - containerRect.top) + 'px';
+//                   textInput.style.fontSize = element.style.fontSize;
+//                   textInput.value = element.textContent;
+//                   textInput.focus();
+//                   textInput.select();
                  
-                  textInput.onblur = () => applyTextEdit(textInput.value);
-                  textInput.onkeypress = (e) => {
-                      if (e.key === 'Enter') {
-                          applyTextEdit(textInput.value);
-                      }
-                  };
-              }
+//                   textInput.onblur = () => applyTextEdit(textInput.value);
+//                   textInput.onkeypress = (e) => {
+//                       if (e.key === 'Enter') {
+//                           applyTextEdit(textInput.value);
+//                       }
+//                   };
+//               }
              
-              function showVirtualKeyboard(currentText) {
-                  const keyboard = document.getElementById('virtualKeyboard');
-                  const input = document.getElementById('keyboardInput');
+//               function showVirtualKeyboard(currentText) {
+//                   const keyboard = document.getElementById('virtualKeyboard');
+//                   const input = document.getElementById('keyboardInput');
                  
-                  input.value = currentText;
-                  keyboard.classList.add('show');
+//                   input.value = currentText;
+//                   keyboard.classList.add('show');
                  
-                  setTimeout(() => {
-                      input.focus();
-                      input.select();
-                  }, 100);
-              }
+//                   setTimeout(() => {
+//                       input.focus();
+//                       input.select();
+//                   }, 100);
+//               }
              
-              function applyKeyboardText() {
-                  const input = document.getElementById('keyboardInput');
-                  applyTextEdit(input.value);
-                  closeVirtualKeyboard();
-              }
+//               function applyKeyboardText() {
+//                   const input = document.getElementById('keyboardInput');
+//                   applyTextEdit(input.value);
+//                   closeVirtualKeyboard();
+//               }
              
-              function closeVirtualKeyboard() {
-                  const keyboard = document.getElementById('virtualKeyboard');
-                  keyboard.classList.remove('show');
+//               function closeVirtualKeyboard() {
+//                   const keyboard = document.getElementById('virtualKeyboard');
+//                   keyboard.classList.remove('show');
                  
-                  if (currentEditingElement) {
-                      currentEditingElement.classList.remove('editing');
-                      currentEditingElement = null;
-                  }
-              }
+//                   if (currentEditingElement) {
+//                       currentEditingElement.classList.remove('editing');
+//                       currentEditingElement = null;
+//                   }
+//               }
              
-              function applyTextEdit(newText) {
-                  if (currentEditingElement && newText.trim()) {
-                      currentEditingElement.textContent = newText;
+//               function applyTextEdit(newText) {
+//                   if (currentEditingElement && newText.trim()) {
+//                       currentEditingElement.textContent = newText;
                      
-                      const index = currentEditingElement.dataset.index;
-                      editHistory.push({
-                          type: 'textEdit',
-                          index: index,
-                          oldText: currentEditingElement.dataset.originalText,
-                          newText: newText,
-                          x: parseFloat(currentEditingElement.style.left),
-                          y: parseFloat(currentEditingElement.style.top),
-                          fontSize: parseFloat(currentEditingElement.style.fontSize)
-                      });
+//                       const index = currentEditingElement.dataset.index;
+//                       editHistory.push({
+//                           type: 'textEdit',
+//                           index: index,
+//                           oldText: currentEditingElement.dataset.originalText,
+//                           newText: newText,
+//                           x: parseFloat(currentEditingElement.style.left),
+//                           y: parseFloat(currentEditingElement.style.top),
+//                           fontSize: parseFloat(currentEditingElement.style.fontSize)
+//                       });
                      
-                      showStatus(\`Text updated: "\${newText}"\`, 'success');
-                  }
+//                       showStatus(\`Text updated: "\${newText}"\`, 'success');
+//                   }
                  
-                  const textInput = document.getElementById('textEditInput');
-                  textInput.style.display = 'none';
+//                   const textInput = document.getElementById('textEditInput');
+//                   textInput.style.display = 'none';
                  
-                  if (currentEditingElement) {
-                      currentEditingElement.classList.remove('editing');
-                      currentEditingElement = null;
-                  }
-              }
+//                   if (currentEditingElement) {
+//                       currentEditingElement.classList.remove('editing');
+//                       currentEditingElement = null;
+//                   }
+//               }
              
-              function addNewText(e) {
-                  const rect = e.currentTarget.getBoundingClientRect();
-                  const x = e.clientX - rect.left;
-                  const y = e.clientY - rect.top;
+//               function addNewText(e) {
+//                   const rect = e.currentTarget.getBoundingClientRect();
+//                   const x = e.clientX - rect.left;
+//                   const y = e.clientY - rect.top;
                  
-                  if (isMobile) {
-                      currentEditingElement = { isNew: true, x: x, y: y };
-                      showVirtualKeyboard('');
-                  } else {
-                      showDesktopTextInputForNewText(x, y);
-                  }
-              }
+//                   if (isMobile) {
+//                       currentEditingElement = { isNew: true, x: x, y: y };
+//                       showVirtualKeyboard('');
+//                   } else {
+//                       showDesktopTextInputForNewText(x, y);
+//                   }
+//               }
              
-              function showDesktopTextInputForNewText(x, y) {
-                  const textInput = document.getElementById('textEditInput');
+//               function showDesktopTextInputForNewText(x, y) {
+//                   const textInput = document.getElementById('textEditInput');
                  
-                  textInput.style.display = 'block';
-                  textInput.style.left = x + 'px';
-                  textInput.style.top = y + 'px';
-                  textInput.style.fontSize = document.getElementById('fontSize').value + 'px';
-                  textInput.value = '';
-                  textInput.focus();
+//                   textInput.style.display = 'block';
+//                   textInput.style.left = x + 'px';
+//                   textInput.style.top = y + 'px';
+//                   textInput.style.fontSize = document.getElementById('fontSize').value + 'px';
+//                   textInput.value = '';
+//                   textInput.focus();
                  
-                  textInput.onblur = () => {
-                      if (textInput.value.trim()) {
-                          createNewTextElement(textInput.value, x, y);
-                      }
-                      textInput.style.display = 'none';
-                  };
+//                   textInput.onblur = () => {
+//                       if (textInput.value.trim()) {
+//                           createNewTextElement(textInput.value, x, y);
+//                       }
+//                       textInput.style.display = 'none';
+//                   };
                  
-                  textInput.onkeypress = (e) => {
-                      if (e.key === 'Enter' && textInput.value.trim()) {
-                          createNewTextElement(textInput.value, x, y);
-                          textInput.style.display = 'none';
-                      }
-                  };
-              }
+//                   textInput.onkeypress = (e) => {
+//                       if (e.key === 'Enter' && textInput.value.trim()) {
+//                           createNewTextElement(textInput.value, x, y);
+//                           textInput.style.display = 'none';
+//                       }
+//                   };
+//               }
              
-              function createNewTextElement(text, x, y) {
-                  const contentLayer = document.getElementById('pdfContentLayer');
-                  const editableElement = document.createElement('div');
-                  const fontSize = parseInt(document.getElementById('fontSize').value);
+//               function createNewTextElement(text, x, y) {
+//                   const contentLayer = document.getElementById('pdfContentLayer');
+//                   const editableElement = document.createElement('div');
+//                   const fontSize = parseInt(document.getElementById('fontSize').value);
                  
-                  editableElement.className = 'editable-text';
-                  editableElement.style.left = x + 'px';
-                  editableElement.style.top = y + 'px';
-                  editableElement.style.fontSize = fontSize + 'px';
-                  editableElement.style.fontFamily = 'Arial';
-                  editableElement.style.color = document.getElementById('colorPicker').value;
-                  editableElement.textContent = text;
-                  editableElement.dataset.originalText = '';
-                  editableElement.dataset.index = pdfTextElements.length;
+//                   editableElement.className = 'editable-text';
+//                   editableElement.style.left = x + 'px';
+//                   editableElement.style.top = y + 'px';
+//                   editableElement.style.fontSize = fontSize + 'px';
+//                   editableElement.style.fontFamily = 'Arial';
+//                   editableElement.style.color = document.getElementById('colorPicker').value;
+//                   editableElement.textContent = text;
+//                   editableElement.dataset.originalText = '';
+//                   editableElement.dataset.index = pdfTextElements.length;
                  
-                  editableElement.addEventListener('click', function(e) {
-                      e.stopPropagation();
-                      if (currentTool === 'edit') {
-                          startTextEdit(editableElement);
-                      }
-                  });
+//                   editableElement.addEventListener('click', function(e) {
+//                       e.stopPropagation();
+//                       if (currentTool === 'edit') {
+//                           startTextEdit(editableElement);
+//                       }
+//                   });
                  
-                  contentLayer.appendChild(editableElement);
+//                   contentLayer.appendChild(editableElement);
                  
-                  pdfTextElements.push({
-                      element: editableElement,
-                      originalText: '',
-                      x: x,
-                      y: y,
-                      fontSize: fontSize,
-                      fontFamily: 'Arial'
-                  });
+//                   pdfTextElements.push({
+//                       element: editableElement,
+//                       originalText: '',
+//                       x: x,
+//                       y: y,
+//                       fontSize: fontSize,
+//                       fontFamily: 'Arial'
+//                   });
                  
-                  editHistory.push({
-                      type: 'newText',
-                      text: text,
-                      x: x,
-                      y: y,
-                      fontSize: fontSize,
-                      color: hexToRgb(document.getElementById('colorPicker').value)
-                  });
+//                   editHistory.push({
+//                       type: 'newText',
+//                       text: text,
+//                       x: x,
+//                       y: y,
+//                       fontSize: fontSize,
+//                       color: hexToRgb(document.getElementById('colorPicker').value)
+//                   });
                  
-                  showStatus(\`New text added: "\${text}"\`, 'success');
-              }
+//                   showStatus(\`New text added: "\${text}"\`, 'success');
+//               }
              
-              function startRectangle(options) {
-                  const pointer = fabricCanvas.getPointer(options.e);
-                  const rect = new fabric.Rect({
-                      left: pointer.x,
-                      top: pointer.y,
-                      width: 100,
-                      height: 60,
-                      fill: 'transparent',
-                      stroke: document.getElementById('colorPicker').value,
-                      strokeWidth: Math.max(1, parseInt(document.getElementById('sizeSlider').value) / 10),
-                      selectable: true
-                  });
-                  fabricCanvas.add(rect);
+//               function startRectangle(options) {
+//                   const pointer = fabricCanvas.getPointer(options.e);
+//                   const rect = new fabric.Rect({
+//                       left: pointer.x,
+//                       top: pointer.y,
+//                       width: 100,
+//                       height: 60,
+//                       fill: 'transparent',
+//                       stroke: document.getElementById('colorPicker').value,
+//                       strokeWidth: Math.max(1, parseInt(document.getElementById('sizeSlider').value) / 10),
+//                       selectable: true
+//                   });
+//                   fabricCanvas.add(rect);
                  
-                  editHistory.push({
-                      type: 'rectangle',
-                      x: pointer.x,
-                      y: pointer.y,
-                      width: 100,
-                      height: 60,
-                      borderColor: hexToRgb(document.getElementById('colorPicker').value),
-                      borderWidth: Math.max(1, parseInt(document.getElementById('sizeSlider').value) / 10)
-                  });
-              }
+//                   editHistory.push({
+//                       type: 'rectangle',
+//                       x: pointer.x,
+//                       y: pointer.y,
+//                       width: 100,
+//                       height: 60,
+//                       borderColor: hexToRgb(document.getElementById('colorPicker').value),
+//                       borderWidth: Math.max(1, parseInt(document.getElementById('sizeSlider').value) / 10)
+//                   });
+//               }
              
-              function startLine(options) {
-                  const pointer = fabricCanvas.getPointer(options.e);
-                  const line = new fabric.Line([pointer.x, pointer.y, pointer.x + 100, pointer.y + 50], {
-                      stroke: document.getElementById('colorPicker').value,
-                      strokeWidth: Math.max(1, parseInt(document.getElementById('sizeSlider').value) / 5),
-                      selectable: true
-                  });
-                  fabricCanvas.add(line);
+//               function startLine(options) {
+//                   const pointer = fabricCanvas.getPointer(options.e);
+//                   const line = new fabric.Line([pointer.x, pointer.y, pointer.x + 100, pointer.y + 50], {
+//                       stroke: document.getElementById('colorPicker').value,
+//                       strokeWidth: Math.max(1, parseInt(document.getElementById('sizeSlider').value) / 5),
+//                       selectable: true
+//                   });
+//                   fabricCanvas.add(line);
                  
-                  editHistory.push({
-                      type: 'line',
-                      startX: pointer.x,
-                      startY: pointer.y,
-                      endX: pointer.x + 100,
-                      endY: pointer.y + 50,
-                      thickness: Math.max(1, parseInt(document.getElementById('sizeSlider').value) / 5),
-                      color: hexToRgb(document.getElementById('colorPicker').value)
-                  });
-              }
+//                   editHistory.push({
+//                       type: 'line',
+//                       startX: pointer.x,
+//                       startY: pointer.y,
+//                       endX: pointer.x + 100,
+//                       endY: pointer.y + 50,
+//                       thickness: Math.max(1, parseInt(document.getElementById('sizeSlider').value) / 5),
+//                       color: hexToRgb(document.getElementById('colorPicker').value)
+//                   });
+//               }
              
-              function clearCanvas() {
-                  if (confirm('Clear all drawings and new text? (Original PDF text will not be affected)')) {
-                      fabricCanvas.clear();
+//               function clearCanvas() {
+//                   if (confirm('Clear all drawings and new text? (Original PDF text will not be affected)')) {
+//                       fabricCanvas.clear();
                      
-                      const contentLayer = document.getElementById('pdfContentLayer');
-                      const newTextElements = contentLayer.querySelectorAll('.editable-text[data-original-text=""]');
-                      newTextElements.forEach(element => element.remove());
+//                       const contentLayer = document.getElementById('pdfContentLayer');
+//                       const newTextElements = contentLayer.querySelectorAll('.editable-text[data-original-text=""]');
+//                       newTextElements.forEach(element => element.remove());
                      
-                      editHistory = editHistory.filter(edit => edit.type === 'textEdit');
-                      showStatus('Drawings and new text cleared!', 'success');
-                  }
-              }
+//                       editHistory = editHistory.filter(edit => edit.type === 'textEdit');
+//                       showStatus('Drawings and new text cleared!', 'success');
+//                   }
+//               }
              
-              function setupMobileSupport() {
-                  if (!isMobile) return;
+//               function setupMobileSupport() {
+//                   if (!isMobile) return;
                  
-                  let lastTouchEnd = 0;
+//                   let lastTouchEnd = 0;
                  
-                  document.addEventListener('touchend', function(event) {
-                      const now = new Date().getTime();
-                      if (now - lastTouchEnd <= 300) {
-                          event.preventDefault();
-                      }
-                      lastTouchEnd = now;
-                  }, false);
+//                   document.addEventListener('touchend', function(event) {
+//                       const now = new Date().getTime();
+//                       if (now - lastTouchEnd <= 300) {
+//                           event.preventDefault();
+//                       }
+//                       lastTouchEnd = now;
+//                   }, false);
                  
-                  window.addEventListener('resize', function() {
-                      const heightDiff = window.outerHeight - window.innerHeight;
-                      document.body.classList.toggle('keyboard-open', heightDiff > 150);
-                  });
-              }
+//                   window.addEventListener('resize', function() {
+//                       const heightDiff = window.outerHeight - window.innerHeight;
+//                       document.body.classList.toggle('keyboard-open', heightDiff > 150);
+//                   });
+//               }
              
-              function handleWindowResize() {
-                  if (fabricCanvas && pdfDoc) {
-                      setTimeout(() => {
-                          renderPage(1);
-                      }, 100);
-                  }
-              }
+//               function handleWindowResize() {
+//                   if (fabricCanvas && pdfDoc) {
+//                       setTimeout(() => {
+//                           renderPage(1);
+//                       }, 100);
+//                   }
+//               }
              
-              function hexToRgb(hex) {
-                  const result = /^#?([a-f\\d]{2})([a-f\\d]{2})([a-f\\d]{2})$/i.exec(hex);
-                  return result ? {
-                      r: parseInt(result[1], 16) / 255,
-                      g: parseInt(result[2], 16) / 255,
-                      b: parseInt(result[3], 16) / 255
-                  } : { r: 0, g: 0, b: 0 };
-              }
+//               function hexToRgb(hex) {
+//                   const result = /^#?([a-f\\d]{2})([a-f\\d]{2})([a-f\\d]{2})$/i.exec(hex);
+//                   return result ? {
+//                       r: parseInt(result[1], 16) / 255,
+//                       g: parseInt(result[2], 16) / 255,
+//                       b: parseInt(result[3], 16) / 255
+//                   } : { r: 0, g: 0, b: 0 };
+//               }
              
-              // FIXED SAVE FUNCTION
-              async function saveChanges() {
-                  console.log('Save button clicked!');
-                  showStatus('Saving changes...', 'success');
+//               // FIXED SAVE FUNCTION
+//               async function saveChanges() {
+//                   console.log('Save button clicked!');
+//                   showStatus('Saving changes...', 'success');
                   
-                  try {
-                      const allEdits = [];
+//                   try {
+//                       const allEdits = [];
                       
-                      // Collect text edits from editHistory
-                      editHistory.forEach(edit => {
-                          if (edit.type === 'textEdit' || edit.type === 'newText') {
-                              allEdits.push({
-                                  type: 'text',
-                                  text: edit.newText || edit.text,
-                                  x: edit.x,
-                                  y: edit.y,
-                                  fontSize: edit.fontSize,
-                                  color: edit.color || { r: 0, g: 0, b: 0 }
-                              });
-                          } else {
-                              allEdits.push(edit);
-                          }
-                      });
+//                       // Collect text edits from editHistory
+//                       editHistory.forEach(edit => {
+//                           if (edit.type === 'textEdit' || edit.type === 'newText') {
+//                               allEdits.push({
+//                                   type: 'text',
+//                                   text: edit.newText || edit.text,
+//                                   x: edit.x,
+//                                   y: edit.y,
+//                                   fontSize: edit.fontSize,
+//                                   color: edit.color || { r: 0, g: 0, b: 0 }
+//                               });
+//                           } else {
+//                               allEdits.push(edit);
+//                           }
+//                       });
                       
-                      // Collect canvas objects (drawings, rectangles, lines)
-                      if (fabricCanvas) {
-                          const canvasObjects = fabricCanvas.getObjects();
-                          canvasObjects.forEach(obj => {
-                              if (obj.type === 'rect') {
-                                  allEdits.push({
-                                      type: 'rectangle',
-                                      x: obj.left,
-                                      y: obj.top,
-                                      width: obj.width * (obj.scaleX || 1),
-                                      height: obj.height * (obj.scaleY || 1),
-                                      borderColor: hexToRgb(obj.stroke || '#000000'),
-                                      borderWidth: obj.strokeWidth || 1
-                                  });
-                              } else if (obj.type === 'line') {
-                                  allEdits.push({
-                                      type: 'line',
-                                      startX: obj.x1,
-                                      startY: obj.y1,
-                                      endX: obj.x2,
-                                      endY: obj.y2,
-                                      thickness: obj.strokeWidth || 1,
-                                      color: hexToRgb(obj.stroke || '#000000')
-                                  });
-                              } else if (obj.type === 'path') {
-                                  allEdits.push({
-                                      type: 'drawing',
-                                      path: obj.path,
-                                      left: obj.left,
-                                      top: obj.top,
-                                      strokeWidth: obj.strokeWidth || 2,
-                                      stroke: obj.stroke || '#000000'
-                                  });
-                              }
-                          });
-                      }
+//                       // Collect canvas objects (drawings, rectangles, lines)
+//                       if (fabricCanvas) {
+//                           const canvasObjects = fabricCanvas.getObjects();
+//                           canvasObjects.forEach(obj => {
+//                               if (obj.type === 'rect') {
+//                                   allEdits.push({
+//                                       type: 'rectangle',
+//                                       x: obj.left,
+//                                       y: obj.top,
+//                                       width: obj.width * (obj.scaleX || 1),
+//                                       height: obj.height * (obj.scaleY || 1),
+//                                       borderColor: hexToRgb(obj.stroke || '#000000'),
+//                                       borderWidth: obj.strokeWidth || 1
+//                                   });
+//                               } else if (obj.type === 'line') {
+//                                   allEdits.push({
+//                                       type: 'line',
+//                                       startX: obj.x1,
+//                                       startY: obj.y1,
+//                                       endX: obj.x2,
+//                                       endY: obj.y2,
+//                                       thickness: obj.strokeWidth || 1,
+//                                       color: hexToRgb(obj.stroke || '#000000')
+//                                   });
+//                               } else if (obj.type === 'path') {
+//                                   allEdits.push({
+//                                       type: 'drawing',
+//                                       path: obj.path,
+//                                       left: obj.left,
+//                                       top: obj.top,
+//                                       strokeWidth: obj.strokeWidth || 2,
+//                                       stroke: obj.stroke || '#000000'
+//                                   });
+//                               }
+//                           });
+//                       }
                       
-                      console.log('Total edits to save:', allEdits.length);
+//                       console.log('Total edits to save:', allEdits.length);
                       
-                      if (allEdits.length === 0) {
-                          showStatus('No changes to save! Make some edits first.', 'error');
-                          return false;
-                      }
+//                       if (allEdits.length === 0) {
+//                           showStatus('No changes to save! Make some edits first.', 'error');
+//                           return false;
+//                       }
                       
-                      // Prepare form data
-                      const formData = new FormData();
-                      formData.append('token', AUTH_TOKEN);
-                      formData.append('editType', 'comprehensive');
-                      formData.append('editData', JSON.stringify(allEdits));
+//                       // Prepare form data
+//                       const formData = new FormData();
+//                       formData.append('token', AUTH_TOKEN);
+//                       formData.append('editType', 'comprehensive');
+//                       formData.append('editData', JSON.stringify(allEdits));
                       
-                      console.log('Sending save request...');
+//                       console.log('Sending save request...');
                       
-                      // Send save request
-                      const response = await fetch('/edit-pdf', {
-                          method: 'POST',
-                          body: formData
-                      });
+//                       // Send save request
+//                       const response = await fetch('/edit-pdf', {
+//                           method: 'POST',
+//                           body: formData
+//                       });
                       
-                      if (!response.ok) {
-                          throw new Error(\`HTTP \${response.status}: \${response.statusText}\`);
-                      }
+//                       if (!response.ok) {
+//                           throw new Error(\`HTTP \${response.status}: \${response.statusText}\`);
+//                       }
                       
-                      const result = await response.json();
-                      console.log('Save response:', result);
+//                       const result = await response.json();
+//                       console.log('Save response:', result);
                       
-                      if (result.success) {
-                          showStatus(\`✅ Changes saved successfully! (\${allEdits.length} edits applied)\`, 'success');
-                          return true;
-                      } else {
-                          showStatus('❌ Error saving: ' + (result.error || 'Unknown error'), 'error');
-                          return false;
-                      }
-                  } catch (error) {
-                      console.error('Save error:', error);
-                      showStatus('❌ Save failed: ' + error.message, 'error');
-                      return false;
-                  }
-              }
+//                       if (result.success) {
+//                           showStatus(\`✅ Changes saved successfully! (\${allEdits.length} edits applied)\`, 'success');
+//                           return true;
+//                       } else {
+//                           showStatus('❌ Error saving: ' + (result.error || 'Unknown error'), 'error');
+//                           return false;
+//                       }
+//                   } catch (error) {
+//                       console.error('Save error:', error);
+//                       showStatus('❌ Save failed: ' + error.message, 'error');
+//                       return false;
+//                   }
+//               }
               
-              // FIXED SEND TO OWNER FUNCTION
-              async function sendToOwner() {
-                  console.log('Send to owner clicked!');
-                  showStatus('Preparing to send to owner...', 'success');
+//               // FIXED SEND TO OWNER FUNCTION
+//               async function sendToOwner() {
+//                   console.log('Send to owner clicked!');
+//                   showStatus('Preparing to send to owner...', 'success');
                   
-                  // Check if there are changes to send
-                  const hasTextEdits = editHistory.length > 0;
-                  const hasCanvasObjects = fabricCanvas && fabricCanvas.getObjects().length > 0;
+//                   // Check if there are changes to send
+//                   const hasTextEdits = editHistory.length > 0;
+//                   const hasCanvasObjects = fabricCanvas && fabricCanvas.getObjects().length > 0;
                   
-                  if (!hasTextEdits && !hasCanvasObjects) {
-                      showStatus('❌ No changes to send! Please make some edits first.', 'error');
-                      return;
-                  }
+//                   if (!hasTextEdits && !hasCanvasObjects) {
+//                       showStatus('❌ No changes to send! Please make some edits first.', 'error');
+//                       return;
+//                   }
                   
-                  try {
-                      // First save the changes
-                      console.log('Saving changes before sending...');
-                      const saveSuccess = await saveChanges();
+//                   try {
+//                       // First save the changes
+//                       console.log('Saving changes before sending...');
+//                       const saveSuccess = await saveChanges();
                       
-                      if (!saveSuccess) {
-                          showStatus('❌ Cannot send: Save failed', 'error');
-                          return;
-                      }
+//                       if (!saveSuccess) {
+//                           showStatus('❌ Cannot send: Save failed', 'error');
+//                           return;
+//                       }
                       
-                      // Wait a moment for save to complete on server
-                      console.log('Waiting for save to complete...');
-                      await new Promise(resolve => setTimeout(resolve, 2000));
+//                       // Wait a moment for save to complete on server
+//                       console.log('Waiting for save to complete...');
+//                       await new Promise(resolve => setTimeout(resolve, 2000));
                       
-                      // Create edit summary
-                      const editSummary = {
-                          textEdits: editHistory.filter(edit => edit.type === 'textEdit').length,
-                          newText: editHistory.filter(edit => edit.type === 'newText').length,
-                          drawings: fabricCanvas ? fabricCanvas.getObjects().length : 0,
-                          editor: '${tokenEmail}',
-                          timestamp: Date.now()
-                      };
+//                       // Create edit summary
+//                       const editSummary = {
+//                           textEdits: editHistory.filter(edit => edit.type === 'textEdit').length,
+//                           newText: editHistory.filter(edit => edit.type === 'newText').length,
+//                           drawings: fabricCanvas ? fabricCanvas.getObjects().length : 0,
+//                           editor: '${tokenEmail}',
+//                           timestamp: Date.now()
+//                       };
                       
-                      console.log('Edit summary:', editSummary);
+//                       console.log('Edit summary:', editSummary);
                       
-                      // Prepare form data for sending
-                      const formData = new FormData();
-                      formData.append('token', AUTH_TOKEN);
-                      formData.append('recipientEmail', '${tokenEmail}');
-                      formData.append('editSummary', JSON.stringify(editSummary));
+//                       // Prepare form data for sending
+//                       const formData = new FormData();
+//                       formData.append('token', AUTH_TOKEN);
+//                       formData.append('recipientEmail', '${tokenEmail}');
+//                       formData.append('editSummary', JSON.stringify(editSummary));
                       
-                      showStatus('📤 Sending PDF to owner...', 'success');
-                      console.log('Sending to owner...');
+//                       showStatus('📤 Sending PDF to owner...', 'success');
+//                       console.log('Sending to owner...');
                       
-                      // Send to owner
-                      const response = await fetch('/send-back', {
-                          method: 'POST',
-                          body: formData
-                      });
+//                       // Send to owner
+//                       const response = await fetch('/send-back', {
+//                           method: 'POST',
+//                           body: formData
+//                       });
                       
-                      if (!response.ok) {
-                          throw new Error(\`HTTP \${response.status}: \${response.statusText}\`);
-                      }
+//                       if (!response.ok) {
+//                           throw new Error(\`HTTP \${response.status}: \${response.statusText}\`);
+//                       }
                       
-                      const result = await response.json();
-                      console.log('Send result:', result);
+//                       const result = await response.json();
+//                       console.log('Send result:', result);
                       
-                      if (result.success) {
-                          showStatus('✅ PDF sent to owner successfully!', 'success');
+//                       if (result.success) {
+//                           showStatus('✅ PDF sent to owner successfully!', 'success');
                           
-                          // Ask if user wants to clear changes
-                          setTimeout(() => {
-                              if (confirm('PDF sent successfully! Would you like to clear all changes and start fresh?')) {
-                                  clearCanvas();
-                                  editHistory = [];
+//                           // Ask if user wants to clear changes
+//                           setTimeout(() => {
+//                               if (confirm('PDF sent successfully! Would you like to clear all changes and start fresh?')) {
+//                                   clearCanvas();
+//                                   editHistory = [];
                                   
-                                  // Reset all text elements to original
-                                  pdfTextElements.forEach(element => {
-                                      if (element.element.dataset.originalText) {
-                                          element.element.textContent = element.element.dataset.originalText;
-                                      }
-                                  });
+//                                   // Reset all text elements to original
+//                                   pdfTextElements.forEach(element => {
+//                                       if (element.element.dataset.originalText) {
+//                                           element.element.textContent = element.element.dataset.originalText;
+//                                       }
+//                                   });
                                   
-                                  showStatus('All changes cleared! Ready for new edits.', 'success');
-                              }
-                          }, 1500);
-                      } else {
-                          showStatus('❌ Send failed: ' + (result.error || 'Unknown error'), 'error');
-                      }
+//                                   showStatus('All changes cleared! Ready for new edits.', 'success');
+//                               }
+//                           }, 1500);
+//                       } else {
+//                           showStatus('❌ Send failed: ' + (result.error || 'Unknown error'), 'error');
+//                       }
                       
-                      // Close dropdown after action
-                      document.getElementById('dropdownContent').classList.remove('show');
+//                       // Close dropdown after action
+//                       document.getElementById('dropdownContent').classList.remove('show');
                       
-                  } catch (error) {
-                      console.error('Send error:', error);
-                      showStatus('❌ Send error: ' + error.message, 'error');
-                  }
-              }
+//                   } catch (error) {
+//                       console.error('Send error:', error);
+//                       showStatus('❌ Send error: ' + error.message, 'error');
+//                   }
+//               }
              
-              function showStatus(message, type) {
-                  const statusDiv = document.getElementById('status');
-                  statusDiv.innerHTML = \`<div class="status \${type}">\${message}</div>\`;
-                  statusDiv.style.display = 'block';
+//               function showStatus(message, type) {
+//                   const statusDiv = document.getElementById('status');
+//                   statusDiv.innerHTML = \`<div class="status \${type}">\${message}</div>\`;
+//                   statusDiv.style.display = 'block';
                   
-                  // Auto-hide after 5 seconds for success messages, keep error messages longer
-                  const hideDelay = type === 'error' ? 8000 : 5000;
-                  setTimeout(() => {
-                      statusDiv.style.display = 'none';
-                  }, hideDelay);
-              }
+//                   // Auto-hide after 5 seconds for success messages, keep error messages longer
+//                   const hideDelay = type === 'error' ? 8000 : 5000;
+//                   setTimeout(() => {
+//                       statusDiv.style.display = 'none';
+//                   }, hideDelay);
+//               }
              
-              // Dropdown Functions
-              function toggleDropdown() {
-                  const dropdown = document.getElementById('dropdownContent');
-                  dropdown.classList.toggle('show');
-                  console.log('Dropdown toggled, visible:', dropdown.classList.contains('show'));
-              }
-          </script>
-      </body>
-      </html>
-    `);
-  } catch (error) {
-    console.error("JWT verification error:", error);
-    return res.status(403).send("Invalid or expired token");
-  }
-});
+//               // Dropdown Functions
+//               function toggleDropdown() {
+//                   const dropdown = document.getElementById('dropdownContent');
+//                   dropdown.classList.toggle('show');
+//                   console.log('Dropdown toggled, visible:', dropdown.classList.contains('show'));
+//               }
+//           </script>
+//       </body>
+//       </html>
+//     `);
+//   } catch (error) {
+//     console.error("JWT verification error:", error);
+//     return res.status(403).send("Invalid or expired token");
+//   }
+// });
 
 // Route to serve PDF content (embedded in browser - STRICTLY prevent downloads for recipients)
 app.get("/pdf-content", (req, res) => {
