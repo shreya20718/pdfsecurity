@@ -60,15 +60,34 @@ const TokenModel = mongoose.model("Token", tokenSchema);
 // Generate a secure one-time use link for a recipient
 app.get("/generate-link", async (req, res) => {
   const { email } = req.query;
-  const jti = uuidv4(); // unique ID
+  if (!email) return res.status(400).send({ success: false, error: "Email is required" });
 
-  const token = jwt.sign({ email, jti }, SECRET_KEY, { expiresIn: "12h" });
+  try {
+    // Generate unique token ID
+    const jti = crypto.randomUUID();
 
-  // Save token in DB with jti
-  await TokenModel.create({ jti, used: false });
+    // Create JWT token with email + jti
+    const token = jwt.sign({ email, jti }, SECRET_KEY, { expiresIn: "12h" });
 
-  const link = `${req.protocol}://${req.get("host")}/pdf-viewer?token=${token}`;
-  res.send({ secureLink: link });
+    // Save token in MongoDB
+    await TokenModel.create({ jti, email, used: false });
+
+    // Add to memory store for edit permissions (optional)
+    AUTHORIZED_RECIPIENTS.set(email, {
+      token,
+      canEdit: true,
+      pdfData: null
+    });
+
+    const link = `${DEPLOYED_URL}/view?token=${token}`;
+    console.log(`Generated link for ${email}: ${link}`);
+
+    res.send({ success: true, secureLink: link });
+
+  } catch (error) {
+    console.error("Error generating secure link:", error);
+    res.status(500).send({ success: false, error: error.message });
+  }
 });
 
 
@@ -498,6 +517,7 @@ app.get("/pdf-content", async (req, res) => {
   }
 });
 
+// PDF Viewer (frontend UI)
 app.get("/pdf-viewer", async (req, res) => {
   const { token } = req.query;
 
@@ -506,22 +526,18 @@ app.get("/pdf-viewer", async (req, res) => {
   try {
     const decoded = jwt.verify(token, SECRET_KEY);
 
-    // ✅ Now check by jti
+    // ✅ use TokenModel instead of Token
     const storedToken = await TokenModel.findOne({ jti: decoded.jti });
 
-    if (!storedToken) {
-      return res.status(403).send("Access denied (invalid token)");
+    if (!storedToken || storedToken.used) {
+      return res.status(403).send("Access denied (invalid or already used)");
     }
 
-    if (storedToken.used) {
-      return res.status(403).send("Access denied (already used)");
-    }
-
-    // ✅ Mark as used
+    // ✅ Mark token as used
     storedToken.used = true;
     await storedToken.save();
 
-    // Show the frontend page
+    // Send frontend HTML
     res.send(`
       <!DOCTYPE html>
       <html lang="en">
