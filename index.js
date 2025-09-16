@@ -438,14 +438,39 @@ app.get("/send", (req, res) => {
 });
 
 // View route (shows Google sign-in for recipients, PDF viewer for authenticated users)
-app.get("/view", (req, res) => {
+app.get("/view", async (req, res) => {
   const { token } = req.query;
 
-  try {
-    const decoded = jwt.verify(token, SECRET_KEY);
-    const tokenEmail = decoded.email;
+  if (!token) {
+    return res.status(400).send("Token is required");
+  }
 
-    // Check if user is authorized (owner or specifically authorized recipient with matching token)
+  try {
+    // Decode JWT
+    const decoded = jwt.verify(token, SECRET_KEY);
+
+    // Fetch token from database
+    const tokenDoc = await TokenModel.findOne({ jti: decoded.jti });
+
+    if (!tokenDoc) {
+      return res.status(401).send(`
+        <h1>Access Denied</h1>
+        <p>Invalid token.</p>
+      `);
+    }
+
+    if (tokenDoc.used) {
+      return res.status(403).send(`
+        <h1>Access Denied</h1>
+        <p>This link has already been used and cannot be accessed again.</p>
+      `);
+    }
+
+    // Mark token as used immediately
+    tokenDoc.used = true;
+    await tokenDoc.save();
+
+    const tokenEmail = decoded.email;
     const isOwner = tokenEmail === OWNER_EMAIL;
     const isAuthorizedRecipient = AUTHORIZED_RECIPIENTS.has(tokenEmail) &&
                                  AUTHORIZED_RECIPIENTS.get(tokenEmail).token === token &&
@@ -453,187 +478,79 @@ app.get("/view", (req, res) => {
 
     if (!isOwner && !isAuthorizedRecipient) {
       return res.status(403).send(`
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>Access Denied</title>
-            <style>
-                body { font-family: Arial, sans-serif; text-align: center; margin: 50px; }
-                .error { color: red; }
-            </style>
-        </head>
-        <body>
-            <h1 class="error">Access Denied</h1>
-            <p>You are not authorized to access this PDF. Only the original recipient can use this link.</p>
-        </body>
-        </html>
+        <h1>Access Denied</h1>
+        <p>You are not authorized to access this PDF.</p>
       `);
     }
 
-    // For recipients, show Google sign-in first
-    if (!isOwner) {
-      return res.send(`
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>Recipient Authentication Required</title>
-            <meta name="google-signin-client_id" content="796807919718-rogn5gjojli6i0pl2d5brv4uqqqereah.apps.googleusercontent.com">
-            <script src="https://accounts.google.com/gsi/client" async defer></script>
-            <style>
-                body { font-family: Arial, sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; background: #f5f5f5; }
-                .container { background: white; padding: 40px; border-radius: 15px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); text-align: center; }
-                .logo { font-size: 48px; margin-bottom: 20px; }
-                h1 { color: #333; margin-bottom: 10px; }
-                .subtitle { color: #666; margin-bottom: 30px; font-size: 18px; }
-                .google-signin { margin: 30px 0; }
-                .security-info { background: #e7f3ff; padding: 20px; border-radius: 10px; margin: 30px 0; border: 1px solid #b3d9ff; text-align: left; }
-                .status { margin: 20px 0; padding: 15px; border-radius: 8px; font-weight: bold; }
-                .success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
-                .error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
-                .warning { background: #fff3cd; color: #856404; border: 1px solid #ffeaa7; }
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <div class="logo">🔒</div>
-                <h1>Recipient Authentication Required</h1>
-                <p class="subtitle">You've been invited to view and edit a secure PDF</p>
-               
-                <div class="warning" style="margin: 20px 0;">
-                    <strong>⚠️ Important:</strong> You must sign in with the Google account that received the invitation email: <strong>${tokenEmail}</strong>
-                </div>
-               
-                <div class="google-signin">
-                    <div id="google-signin-button">
-                        <button id="fallback-button" onclick="showManualSignin()" style="background: #4285f4; color: white; padding: 12px 24px; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; display: block;">
-                            🔐 Sign in with Google
-                        </button>
-                    </div>
-                </div>
-               
-                <div class="security-info">
-                    <strong>🔐 How it works:</strong>
-                    <ul style="margin: 15px 0; padding-left: 20px;">
-                        <li>Click "Sign in with Google" above</li>
-                        <li>Select the Google account: <strong>${tokenEmail}</strong></li>
-                        <li>If authentication matches, PDF opens automatically</li>
-                        <li>You can then view and edit the PDF in your browser</li>
-                        <li><strong>🚫 Downloads completely disabled</strong> - no browser PDF controls</li>
-                        <li>PDF opens in secure viewer only - no 3-dot menu options</li>
-                    </ul>
-                </div>
-               
-                <div id="status"></div>
-            </div>
-           
-            <script>
-                // Check if Google Identity Services loaded properly
-                window.addEventListener('load', function() {
-                    // Wait a bit for Google script to load
-                    setTimeout(function() {
-                        if (typeof google !== 'undefined' && google.accounts) {
-                            console.log('Google Identity Services loaded successfully');
-                           
-                            // Initialize Google Sign-In
-                            google.accounts.id.initialize({
-                                client_id: '796807919718-rogn5gjojli6i0pl2d5brv4uqqqereah.apps.googleusercontent.com',
-                                callback: handleCredentialResponse
-                            });
-                           
-                            // Render the button
-                            google.accounts.id.renderButton(
-                                document.getElementById('google-signin-button'),
-                                {
-                                    theme: 'outline',
-                                    size: 'large',
-                                    text: 'signin_with',
-                                    shape: 'rectangular'
-                                }
-                            );
-                           
-                            // Hide the fallback button
-                            const fallbackButton = document.getElementById('fallback-button');
-                            if (fallbackButton) {
-                                fallbackButton.style.display = 'none';
-                            }
-                        } else {
-                            console.error('Google Identity Services failed to load');
-                            document.getElementById('google-signin-button').innerHTML =
-                                '<button onclick="showManualSignin()" style="background: #4285f4; color: white; padding: 12px 24px; border: none; border-radius: 8px; cursor: pointer;">Sign in with Google (Manual)</button>';
-                        }
-                    }, 2000);
-                });
-
-                function handleCredentialResponse(response) {
-                    // Decode the JWT token from Google
-                    const payload = JSON.parse(atob(response.credential.split('.')[1]));
-                    const userEmail = payload.email;
-                   
-                    console.log('User selected:', userEmail);
-                   
-                    // Verify the email matches the invited recipient
-                    if (userEmail === '${tokenEmail}') {
-                        showStatus('✅ Authentication successful! Opening PDF...', 'success');
-                        // Redirect to the actual PDF viewer
-                        setTimeout(() => {
-                            window.location.href = '/pdf-viewer?token=${token}';
-                        }, 1500);
-                    } else {
-                        showStatus('❌ Authentication failed! You must sign in with ${tokenEmail}', 'error');
-                    }
-                }
-
-                function showManualSignin() {
-                    const email = prompt('Please enter your email address:');
-                    if (email) {
-                        if (email === '${tokenEmail}') {
-                            showStatus('✅ Email verified! Opening PDF...', 'success');
-                            setTimeout(() => {
-                                window.location.href = '/pdf-viewer?token=${token}';
-                            }, 1500);
-                        } else {
-                            showStatus('❌ Email does not match the invited recipient', 'error');
-                        }
-                    }
-                }
-               
-                function showStatus(message, type) {
-                    const statusDiv = document.getElementById('status');
-                    statusDiv.innerHTML = '<div class="status ' + type + '">' + message + '</div>';
-                    statusDiv.style.display = 'block';
-                   
-                    setTimeout(() => {
-                        statusDiv.style.display = 'none';
-                    }, 5000);
-                }
-            </script>
-        </body>
-        </html>
-      `);
+    // OWNER: show PDF directly
+    if (isOwner) {
+      return res.redirect(`/pdf-viewer?token=${token}`);
     }
 
-    // For owner, show the PDF viewer directly
-    return res.redirect(`/pdf-viewer?token=${token}`);
-  } catch (err) {
-    res.status(403).send(`
+    // RECIPIENT: show Google sign-in first
+    return res.send(`
       <!DOCTYPE html>
       <html>
       <head>
-          <title>Access Denied</title>
-          <style>
-              body { font-family: Arial, sans-serif; text-align: center; margin: 50px; }
-              .error { color: red; }
-          </style>
+        <title>Recipient Authentication Required</title>
+        <meta name="google-signin-client_id" content="YOUR_GOOGLE_CLIENT_ID">
+        <script src="https://accounts.google.com/gsi/client" async defer></script>
+        <style>
+          body { font-family: Arial; max-width: 600px; margin: 50px auto; padding: 20px; }
+          .container { background: #fff; padding: 40px; border-radius: 15px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); text-align: center; }
+          .status { margin: 20px 0; padding: 15px; border-radius: 8px; font-weight: bold; }
+          .success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+          .error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        </style>
       </head>
       <body>
-          <h1 class="error">Access Denied</h1>
-          <p>Invalid or expired link.</
+        <div class="container">
+          <h1>🔒 Recipient Authentication Required</h1>
+          <p>You must sign in with the Google account that received this invitation:</p>
+          <strong>${tokenEmail}</strong>
+          <div id="google-signin-button"></div>
+          <div class="status" id="status"></div>
+        </div>
+
+        <script>
+          window.onload = function() {
+            if (typeof google !== 'undefined' && google.accounts) {
+              google.accounts.id.initialize({
+                client_id: 'YOUR_GOOGLE_CLIENT_ID',
+                callback: handleCredentialResponse
+              });
+              google.accounts.id.renderButton(
+                document.getElementById('google-signin-button'),
+                { theme: 'outline', size: 'large', text: 'signin_with' }
+              );
+            }
+          }
+
+          function handleCredentialResponse(response) {
+            const payload = JSON.parse(atob(response.credential.split('.')[1]));
+            const userEmail = payload.email;
+
+            const statusDiv = document.getElementById('status');
+            if (userEmail === '${tokenEmail}') {
+              statusDiv.innerHTML = '<div class="status success">✅ Authentication successful! Opening PDF...</div>';
+              setTimeout(() => { window.location.href = '/pdf-viewer?token=${token}'; }, 1500);
+            } else {
+              statusDiv.innerHTML = '<div class="status error">❌ Authentication failed! You must sign in with ${tokenEmail}</div>';
+            }
+          }
+        </script>
       </body>
       </html>
     `);
+
+  } catch (err) {
+    return res.status(403).send(`
+      <h1>Access Denied</h1>
+      <p>Invalid or expired token.</p>
+    `);
   }
 });
-
 
 // Route to serve PDF content (embedded in browser - STRICTLY prevent downloads for recipients)
 app.get("/pdf-content", async (req, res) => {
