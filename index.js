@@ -523,8 +523,11 @@ app.get("/pdf-viewer", async (req, res) => {
   if (!token) return res.status(400).send("Access denied (no token)");
 
   try {
-    // Check if token exists and unused
-    const storedToken = await Token.findOne({ token });
+    const decoded = jwt.verify(token, SECRET_KEY);
+
+    // ✅ use TokenModel instead of Token
+    const storedToken = await TokenModel.findOne({ jti: decoded.jti });
+
     if (!storedToken || storedToken.used) {
       return res.status(403).send("Access denied (invalid or already used)");
     }
