@@ -516,6 +516,146 @@ app.get("/pdf-content", async (req, res) => {
   }
 });
 
+// PDF Viewer (frontend UI)
+app.get("/pdf-viewer", async (req, res) => {
+  const { token } = req.query;
+
+  if (!token) return res.status(400).send("Access denied (no token)");
+
+  try {
+    // Check if token exists and unused
+    const storedToken = await Token.findOne({ token });
+    if (!storedToken || storedToken.used) {
+      return res.status(403).send("Access denied (invalid or already used)");
+    }
+
+    // ✅ Mark token as used
+    storedToken.used = true;
+    await storedToken.save();
+
+    // Send frontend HTML
+    res.send(`
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="UTF-8">
+        <title>PDF Viewer</title>
+        <style>
+          body {
+            font-family: Arial, sans-serif;
+            background: #f9f9f9;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+          }
+          .modal {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: rgba(0,0,0,0.6);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+          }
+          .modal-content {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+            text-align: center;
+            width: 400px;
+            max-width: 90%;
+          }
+          .modal-content button {
+            margin-top: 20px;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            background: #007bff;
+            color: white;
+            font-size: 16px;
+            cursor: pointer;
+          }
+          .modal-content button:hover {
+            background: #0056b3;
+          }
+          .dropdown {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+          }
+          select {
+            padding: 8px 12px;
+            border-radius: 8px;
+            border: 1px solid #ccc;
+            font-size: 14px;
+          }
+          video {
+            margin-top: 80px;
+            width: 90%;
+            max-width: 600px;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+          }
+        </style>
+      </head>
+      <body>
+        <!-- Dropdown -->
+        <div class="dropdown">
+          <select id="menu">
+            <option selected disabled>Options</option>
+            <option value="send">Send to Owner</option>
+            <option value="about">About App</option>
+          </select>
+        </div>
+        <!-- Video preview -->
+        <video id="camera" autoplay playsinline></video>
+        <!-- Popup modal -->
+        <div class="modal" id="introModal">
+          <div class="modal-content">
+            <h2>Welcome to Optimize App</h2>
+            <p>This is the Optimize App. Make your dimension from here.</p>
+            <button id="okBtn">Okay</button>
+          </div>
+        </div>
+        <script>
+          const modal = document.getElementById("introModal");
+          const okBtn = document.getElementById("okBtn");
+          const video = document.getElementById("camera");
+
+          okBtn.addEventListener("click", async () => {
+            modal.style.display = "none"; // Hide modal
+            try {
+              // Request camera access (front camera)
+              const stream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: "user" }
+              });
+              video.srcObject = stream;
+            } catch (err) {
+              alert("Camera access denied: " + err.message);
+            }
+          });
+
+          // Dropdown menu actions
+          document.getElementById("menu").addEventListener("change", (e) => {
+            if (e.target.value === "send") {
+              alert("Send to owner functionality goes here");
+            } else if (e.target.value === "about") {
+              alert("Optimize App v1.0 - Secure PDF Viewer");
+            }
+          });
+        </script>
+      </body>
+      </html>
+    `);
+  } catch (err) {
+    console.error("Error in /pdf-viewer:", err);
+    res.status(500).send("Internal Server Error");
+  }
+});
 
 // Route for direct access - shows Google account picker
 app.get("/", (req, res) => {
