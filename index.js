@@ -521,91 +521,441 @@ app.get("/pdf-content", async (req, res) => {
 app.get("/pdf-viewer", (req, res) => {
   res.send(`
     <!DOCTYPE html>
-    <html>
-      <head>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Optimate - PDF Viewer</title>
         <style>
-          body {
-            font-family: Arial, sans-serif;
-            background: #f4f4f4;
-            margin: 0;
-            padding: 0;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-          }
-          .popup {
-            background: #fff;
-            padding: 20px 30px;
-            border-radius: 12px;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.15);
-            text-align: center;
-            max-width: 400px;
-          }
-          .popup h1 {
-            margin-bottom: 10px;
-            color: #333;
-          }
-          .popup p {
-            margin-bottom: 20px;
-            color: #555;
-          }
-          button {
-            padding: 10px 18px;
-            margin: 5px;
-            border: none;
-            border-radius: 8px;
-            background: #007bff;
-            color: white;
-            cursor: pointer;
-          }
-          button:hover {
-            background: #0056b3;
-          }
-          select {
-            margin-top: 20px;
-            padding: 10px;
-            border-radius: 8px;
-            border: 1px solid #ccc;
-          }
+            * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }
+            
+            body {
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                background: linear-gradient(135deg, #ff6b35 0%, #ff8c42 50%, #ffa726 100%);
+                min-height: 100vh;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                position: relative;
+            }
+            
+            .main-content {
+                text-align: center;
+                color: white;
+                z-index: 1;
+            }
+            
+            .main-content h1 {
+                font-size: 48px;
+                margin-bottom: 20px;
+                text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+            }
+            
+            .main-content p {
+                font-size: 20px;
+                opacity: 0.9;
+            }
+            
+            /* Modal Overlay */
+            .modal-overlay {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0, 0, 0, 0.7);
+                backdrop-filter: blur(8px);
+                z-index: 1000;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                opacity: 0;
+                visibility: hidden;
+                transition: all 0.3s ease;
+            }
+            
+            .modal-overlay.show {
+                opacity: 1;
+                visibility: visible;
+            }
+            
+            /* Popup Window */
+            .popup-window {
+                background: white;
+                border-radius: 16px;
+                box-shadow: 0 25px 80px rgba(0, 0, 0, 0.3);
+                min-width: 400px;
+                max-width: 90vw;
+                transform: scale(0.7) translateY(50px);
+                transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+                border: 3px solid #ff8c42;
+                overflow: hidden;
+            }
+            
+            .modal-overlay.show .popup-window {
+                transform: scale(1) translateY(0);
+            }
+            
+            /* Popup Header */
+            .popup-header {
+                background: linear-gradient(135deg, #ff6b35, #ff8c42);
+                padding: 20px;
+                text-align: center;
+                position: relative;
+            }
+            
+            .popup-header::after {
+                content: '';
+                position: absolute;
+                bottom: 0;
+                left: 0;
+                right: 0;
+                height: 4px;
+                background: linear-gradient(90deg, #ffa726, #ff8c42, #ff6b35);
+            }
+            
+            .popup-icon {
+                width: 60px;
+                height: 60px;
+                background: rgba(255, 255, 255, 0.2);
+                border-radius: 50%;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 28px;
+                margin: 0 auto 15px;
+                border: 2px solid rgba(255, 255, 255, 0.3);
+            }
+            
+            .popup-title {
+                color: white;
+                font-size: 24px;
+                font-weight: 700;
+                margin: 0;
+                text-shadow: 1px 1px 2px rgba(0,0,0,0.2);
+            }
+            
+            /* Popup Content */
+            .popup-content {
+                padding: 30px;
+                text-align: center;
+            }
+            
+            .popup-message {
+                font-size: 16px;
+                color: #555;
+                margin-bottom: 30px;
+                line-height: 1.5;
+            }
+            
+            .camera-options {
+                display: flex;
+                gap: 15px;
+                justify-content: center;
+                margin-bottom: 25px;
+                flex-wrap: wrap;
+            }
+            
+            .camera-btn {
+                padding: 14px 28px;
+                border: none;
+                border-radius: 12px;
+                font-size: 16px;
+                font-weight: 600;
+                cursor: pointer;
+                transition: all 0.3s ease;
+                position: relative;
+                overflow: hidden;
+                min-width: 140px;
+            }
+            
+            .camera-btn.front {
+                background: linear-gradient(135deg, #ff6b35, #ff8c42);
+                color: white;
+                box-shadow: 0 4px 15px rgba(255, 107, 53, 0.4);
+            }
+            
+            .camera-btn.back {
+                background: linear-gradient(135deg, #ff8c42, #ffa726);
+                color: white;
+                box-shadow: 0 4px 15px rgba(255, 140, 66, 0.4);
+            }
+            
+            .camera-btn:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 8px 25px rgba(255, 107, 53, 0.5);
+            }
+            
+            .camera-btn:active {
+                transform: translateY(0);
+            }
+            
+            .divider {
+                height: 1px;
+                background: linear-gradient(90deg, transparent, #ddd, transparent);
+                margin: 25px 0;
+            }
+            
+            .additional-options {
+                margin-bottom: 20px;
+            }
+            
+            .options-label {
+                display: block;
+                margin-bottom: 10px;
+                color: #666;
+                font-weight: 600;
+                font-size: 14px;
+            }
+            
+            select {
+                width: 100%;
+                padding: 12px 16px;
+                border-radius: 8px;
+                border: 2px solid #ddd;
+                background: white;
+                font-size: 14px;
+                color: #333;
+                cursor: pointer;
+                transition: all 0.3s ease;
+            }
+            
+            select:focus {
+                outline: none;
+                border-color: #ff6b35;
+                box-shadow: 0 0 0 3px rgba(255, 107, 53, 0.1);
+            }
+            
+            .popup-footer {
+                background: #f8f9fa;
+                padding: 20px;
+                text-align: right;
+                border-top: 1px solid #eee;
+            }
+            
+            .close-btn {
+                background: #6c757d;
+                color: white;
+                border: none;
+                padding: 10px 20px;
+                border-radius: 6px;
+                cursor: pointer;
+                font-size: 14px;
+                transition: background 0.3s ease;
+            }
+            
+            .close-btn:hover {
+                background: #5a6268;
+            }
+            
+            .status-toast {
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                padding: 16px 24px;
+                border-radius: 8px;
+                color: white;
+                font-weight: 500;
+                transform: translateX(400px);
+                transition: all 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+                z-index: 2000;
+                box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+            }
+            
+            .status-toast.show {
+                transform: translateX(0);
+            }
+            
+            .status-toast.success {
+                background: linear-gradient(135deg, #28a745, #20c997);
+            }
+            
+            .status-toast.error {
+                background: linear-gradient(135deg, #dc3545, #fd7e14);
+            }
+            
+            .status-toast.info {
+                background: linear-gradient(135deg, #ff6b35, #ff8c42);
+            }
+            
+            @media (max-width: 480px) {
+                .popup-window {
+                    min-width: 320px;
+                    margin: 20px;
+                }
+                
+                .camera-options {
+                    flex-direction: column;
+                    align-items: center;
+                }
+                
+                .camera-btn {
+                    width: 100%;
+                    max-width: 200px;
+                }
+                
+                .status-toast {
+                    right: 10px;
+                    left: 10px;
+                    transform: translateY(-100px);
+                }
+                
+                .status-toast.show {
+                    transform: translateY(0);
+                }
+            }
         </style>
-      </head>
-      <body>
-        <div class="popup">
-          <h1>Welcome to Optimate 🎉</h1>
-          <p>Make your dimension from here and allow camera access.</p>
-          <button onclick="requestCamera('user')">Use Front Camera</button>
-          <button onclick="requestCamera('environment')">Use Back Camera</button>
-
-          <select id="options">
-            <option value="">-- Select an option --</option>
-            <option value="owner">Send to Owner</option>
-            <option value="about">About App</option>
-          </select>
+    </head>
+    <body>
+        <div class="main-content">
+            <h1>Optimate PDF Viewer</h1>
+            <p>Secure Document Viewing Platform</p>
         </div>
 
-        <script>
-          async function requestCamera(facingMode) {
-            try {
-              const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode } });
-              alert('Camera access granted for ' + facingMode + ' camera!');
-              // You can attach stream to video element if needed
-            } catch (err) {
-              alert('Camera access denied: ' + err.message);
-            }
-          }
+        <!-- Modal Popup -->
+        <div id="welcomeModal" class="modal-overlay">
+            <div class="popup-window">
+                <div class="popup-header">
+                    <div class="popup-icon">🎉</div>
+                    <h2 class="popup-title">Welcome to Optimate</h2>
+                </div>
+                
+                <div class="popup-content">
+                    <p class="popup-message">
+                        Make your dimension from here and allow camera access for the best experience.
+                    </p>
+                    
+                    <div class="camera-options">
+                        <button class="camera-btn front" onclick="requestCamera('user')">
+                            📱 Front Camera
+                        </button>
+                        <button class="camera-btn back" onclick="requestCamera('environment')">
+                            📷 Back Camera
+                        </button>
+                    </div>
+                    
+                    <div class="divider"></div>
+                    
+                    <div class="additional-options">
+                        <label class="options-label">Additional Options</label>
+                        <select id="options">
+                            <option value="">-- Select an option --</option>
+                            <option value="owner">Send to Owner</option>
+                            <option value="about">About App</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="popup-footer">
+                    <button class="close-btn" onclick="closeModal()">Close</button>
+                </div>
+            </div>
+        </div>
 
-          document.getElementById('options').addEventListener('change', function() {
-            if (this.value === 'owner') {
-              alert('Sending info to owner...');
-            } else if (this.value === 'about') {
-              alert('Optimate is an app for secure document viewing.');
+        <!-- Toast Notification -->
+        <div id="statusToast" class="status-toast"></div>
+
+        <script>
+            // Show welcome modal when page loads
+            window.addEventListener('load', function() {
+                setTimeout(() => {
+                    document.getElementById('welcomeModal').classList.add('show');
+                }, 500);
+            });
+            
+            function closeModal() {
+                document.getElementById('welcomeModal').classList.remove('show');
             }
-          });
+            
+            // Close modal when clicking outside
+            document.getElementById('welcomeModal').addEventListener('click', function(e) {
+                if (e.target === this) {
+                    closeModal();
+                }
+            });
+            
+            // Close modal with Escape key
+            document.addEventListener('keydown', function(e) {
+                if (e.key === 'Escape') {
+                    closeModal();
+                }
+            });
+            
+            async function requestCamera(facingMode) {
+                const cameraType = facingMode === 'user' ? 'Front' : 'Back';
+                
+                showToast(\`Requesting \${cameraType.toLowerCase()} camera access...\`, 'info');
+                
+                try {
+                    const constraints = {
+                        video: { 
+                            facingMode: facingMode,
+                            width: { ideal: 1280 },
+                            height: { ideal: 720 }
+                        }
+                    };
+                    
+                    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                    
+                    showToast(\`✅ \${cameraType} camera access granted!\`, 'success');
+                    
+                    // Close modal after successful camera access
+                    setTimeout(() => {
+                        closeModal();
+                    }, 2000);
+                    
+                    // Stop stream for demo (in real app, you'd use this stream)
+                    setTimeout(() => {
+                        stream.getTracks().forEach(track => track.stop());
+                    }, 3000);
+                    
+                } catch (err) {
+                    let errorMessage = 'Camera access denied';
+                    if (err.name === 'NotFoundError') {
+                        errorMessage = 'No camera found';
+                    } else if (err.name === 'NotAllowedError') {
+                        errorMessage = 'Camera permission denied';
+                    } else if (err.name === 'NotReadableError') {
+                        errorMessage = 'Camera already in use';
+                    }
+                    
+                    showToast(\`❌ \${errorMessage}\`, 'error');
+                }
+            }
+            
+            function showToast(message, type) {
+                const toast = document.getElementById('statusToast');
+                toast.textContent = message;
+                toast.className = \`status-toast \${type} show\`;
+                
+                setTimeout(() => {
+                    toast.classList.remove('show');
+                }, 4000);
+            }
+            
+            document.getElementById('options').addEventListener('change', function() {
+                const value = this.value;
+                
+                if (value === 'owner') {
+                    showToast('📤 Sending to owner...', 'info');
+                    setTimeout(() => {
+                        showToast('✅ Information sent!', 'success');
+                    }, 1500);
+                    
+                } else if (value === 'about') {
+                    showToast('ℹ️ Optimate: Secure document viewing with camera integration', 'info');
+                }
+                
+                setTimeout(() => {
+                    this.value = '';
+                }, 100);
+            });
         </script>
-      </body>
+    </body>
     </html>
   `);
 });
