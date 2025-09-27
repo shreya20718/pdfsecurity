@@ -99,7 +99,8 @@ app.get("/send-email/:email", async (req, res) => {
   
   try {
     // Generate the secure link via centralized route
-    const response = await fetch(`${DEPLOYED_URL}/generate-link?email=${encodeURIComponent(email)}`);
+    const baseUrl = process.env.NODE_ENV === 'production' ? DEPLOYED_URL : `http://localhost:${PORT}`;
+    const response = await fetch(`${baseUrl}/generate-link?email=${encodeURIComponent(email)}`);
     const data = await response.json();
 
     if (!data.success) return res.status(500).send({ success: false, error: data.error });
@@ -322,8 +323,8 @@ app.get("/view", async (req, res) => {
     // tokenDoc.used = true;
     // await tokenDoc.save();
 
-    // Redirect to PDF viewer or main page
-   return res.redirect(`/measure?token=${token}`);
+    // Redirect to the React app's /measure route with the token
+    return res.redirect(`/measure?token=${token}`);
 
   } catch (err) {
     return res.status(403).send(`
@@ -751,6 +752,12 @@ async function sendSecureLink() {
 }
 const clientBuildPath = path.join(__dirname, "client", "build");
 app.use(express.static(clientBuildPath));
+
+// Route for React app measurement page
+app.get("/measure", (req, res) => {
+  res.sendFile(path.join(clientBuildPath, "index.html"));
+});
+
 // Catch-all handler for React SPA
 app.use((req, res, next) => {
   // List all backend routes you want to exclude from React SPA
