@@ -1,5 +1,5 @@
 
-
+const Measurement = require("./models/Measurement");
 const express = require("express");
 const jwt = require("jsonwebtoken");
 const fs = require("fs");
@@ -155,152 +155,6 @@ app.get("/check-recipient", (req, res) => {
 
 
 
-// Enhanced send-back route to handle the new editing system
-app.post("/send-back", upload.single('pdf'), async (req, res) => {
-  const { token, recipientEmail, editSummary } = req.body;
- 
-  try {
-    // Verify token
-    const decoded = jwt.verify(token, SECRET_KEY);
-   
-    // Check if the recipient is authorized with matching token and can edit
-    if (decoded.email !== OWNER_EMAIL &&
-        (!AUTHORIZED_RECIPIENTS.has(decoded.email) ||
-         AUTHORIZED_RECIPIENTS.get(decoded.email).token !== token ||
-         !AUTHORIZED_RECIPIENTS.get(decoded.email).canEdit)) {
-      return res.status(403).send({ success: false, error: "Unauthorized recipient or no edit permissions" });
-    }
-   
-    // Find the most recent edited PDF file for this user
-    const uploadsDir = path.join(__dirname, 'uploads');
-    const userFilePattern = `edited-resume-${decoded.email.replace(/[@.]/g, '_')}`;
-   
-    let mostRecentFile = null;
-    let mostRecentTime = 0;
-   
-    if (fs.existsSync(uploadsDir)) {
-      const files = fs.readdirSync(uploadsDir);
-      files.forEach(file => {
-        if (file.startsWith(userFilePattern)) {
-          const filePath = path.join(uploadsDir, file);
-          const stats = fs.statSync(filePath);
-          if (stats.mtimeMs > mostRecentTime) {
-            mostRecentTime = stats.mtimeMs;
-            mostRecentFile = file;
-          }
-        }
-      });
-    }
-   
-    if (!mostRecentFile && !req.file) {
-      return res.status(400).send({ success: false, error: "No edited PDF found to send" });
-    }
-   
-    let attachmentPath = null;
-    let fileName = `edited-resume-from-${decoded.email}-${Date.now()}.pdf`;
-   
-    if (req.file) {
-      // Use uploaded file
-      fileName = `edited-resume-upload-${decoded.email.replace(/[@.]/g, '_')}-${Date.now()}.pdf`;
-      attachmentPath = path.join(__dirname, 'uploads', fileName);
-      fs.writeFileSync(attachmentPath, req.file.buffer);
-    } else if (mostRecentFile) {
-      // Use most recent edited file
-      attachmentPath = path.join(uploadsDir, mostRecentFile);
-      fileName = mostRecentFile;
-    }
-   
-    // Parse edit summary if provided
-    let summaryText = '';
-    if (editSummary) {
-      try {
-        const summary = JSON.parse(editSummary);
-        summaryText = `
-📊 Edit Summary:
-• Text modifications: ${summary.textEdits || 0}
-• New text added: ${summary.newText || 0}  
-• Drawings/annotations: ${summary.drawings || 0}
-• Edited by: ${summary.editor}
-• Timestamp: ${new Date(summary.timestamp).toLocaleString()}
-        `;
-      } catch (e) {
-        summaryText = 'Edit summary parsing failed, but PDF contains all changes.';
-      }
-    }
-
-    // IMMEDIATELY send email to shreyagaikwad10@gmail.com with the edited PDF
-    let transporter = nodemailer.createTransport({
-      service: "gmail",
-      auth: {
-        user: "shreyagaikwad107@gmail.com",
-        pass: "ukrb lzop ycqs epvi",
-      },
-    });
-
-    const emailResult = await transporter.sendMail({
-      from: '"PDF Security System" <shreyagaikwad107@gmail.com>',
-      to: "shreyagaikwad10@gmail.com",
-      subject: `📄 Enhanced PDF Edit Received from ${decoded.email}`,
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-          <h2 style="color: #333;">📄 Enhanced PDF Edit Received</h2>
-          <div style="background: #f8f9fa; padding: 20px; border-radius: 10px; margin: 20px 0;">
-            <p><strong>From:</strong> ${decoded.email}</p>
-            <p><strong>Received:</strong> ${new Date().toLocaleString()}</p>
-            <p><strong>File:</strong> ${fileName}</p>
-          </div>
-         
-          ${summaryText ? `
-          <div style="background: #e7f3ff; padding: 15px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #007bff;">
-            <pre style="margin: 0; font-family: Arial, sans-serif; white-space: pre-wrap;">${summaryText}</pre>
-          </div>
-          ` : ''}
-         
-          <div style="background: #d4edda; padding: 15px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #28a745;">
-            <h3 style="margin: 0 0 10px 0; color: #155724;">✅ Features Used:</h3>
-            <ul style="margin: 0; color: #155724;">
-              <li>Direct PDF text editing (modify existing content)</li>
-              <li>Add new text anywhere on the document</li>
-              <li>Drawing and annotation tools</li>
-              <li>Mobile-optimized virtual keyboard</li>
-              <li>Professional PDF modification</li>
-            </ul>
-          </div>
-         
-          <p><strong>📱 Mobile Support:</strong> This PDF was edited using our mobile-optimized interface with virtual keyboard support for seamless text editing on any device.</p>
-         
-          <p><strong>🔒 Security:</strong> The recipient could only view and edit - no downloads were allowed during the editing process.</p>
-        </div>
-      `,
-      attachments: [{
-        filename: fileName,
-        path: attachmentPath
-      }]
-    });
-
-    console.log(`✅ Enhanced edited PDF sent to shreyagaikwad10@gmail.com from ${decoded.email}`);
-    console.log(`📧 Email sent: ${emailResult.messageId}`);
-    console.log(`📄 File: ${fileName}`);
-
-    res.send({
-      success: true,
-      message: "Enhanced edited PDF sent successfully to owner!",
-      emailId: emailResult.messageId,
-      fileName: fileName,
-      features: {
-        textEditing: true,
-        newTextAddition: true,
-        mobileSupport: true,
-        virtualKeyboard: true,
-        drawingTools: true
-      }
-    });
-   
-  } catch (error) {
-    console.error("Error sending enhanced PDF:", error);
-    res.status(500).send({ success: false, error: error.message });
-  }
-});
 
 // Web interface for sending emails
 // Web interface for sending emails or SMS
@@ -465,11 +319,11 @@ app.get("/view", async (req, res) => {
     }
 
     // ✅ Mark token as used immediately
-    tokenDoc.used = true;
-    await tokenDoc.save();
+    // tokenDoc.used = true;
+    // await tokenDoc.save();
 
     // Redirect to PDF viewer or main page
-    return res.redirect(`/pdf-viewer?token=${token}`);
+   return res.redirect(`/measure?token=${token}`);
 
   } catch (err) {
     return res.status(403).send(`
@@ -484,6 +338,158 @@ app.get("/view", async (req, res) => {
     `);
   }
 });
+
+// POST /save-measurement
+app.post("/save-measurement", async (req, res) => {
+  try {
+    const {
+      token,
+      pupillaryDistance,
+      frameWidth,
+      frameHeight,
+      leftEye,
+      rightEye,
+      imageDataURL
+    } = req.body;
+
+    if (!token) return res.status(400).json({ success: false, error: "token required" });
+
+    // verify token signature
+    let decoded;
+    try {
+      decoded = jwt.verify(token, SECRET_KEY);
+    } catch (err) {
+      return res.status(401).json({ success: false, error: "Invalid or expired token" });
+    }
+
+    // fetch token record
+    const tokenDoc = await TokenModel.findOne({ jti: decoded.jti, email: decoded.email });
+    if (!tokenDoc) return res.status(403).json({ success: false, error: "Invalid token" });
+    if (tokenDoc.used) return res.status(403).json({ success: false, error: "This link has already been used." });
+
+    // Save measurement to DB
+    const measurement = new Measurement({
+      userEmail: decoded.email,
+      ownerEmail: OWNER_EMAIL,
+      pupillaryDistance,
+      frameWidth,
+      frameHeight,
+      leftEye,
+      rightEye,
+      imageDataURL
+    });
+
+    await measurement.save();
+
+    // --- Generate PDF using pdf-lib ---
+    const pdfDoc = await PDFDocument.create();
+    const page = pdfDoc.addPage([600, 850]);
+    const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+    let y = 800;
+
+    page.drawText(`Eye & Frame Measurement Report`, { x: 40, y, size: 18, font });
+    y -= 30;
+    page.drawText(`User: ${decoded.email}`, { x: 40, y, size: 12, font });
+    y -= 20;
+    page.drawText(`Owner: ${OWNER_EMAIL}`, { x: 40, y, size: 12, font });
+    y -= 20;
+    page.drawText(`Timestamp: ${new Date(measurement.createdAt).toLocaleString()}`, { x: 40, y, size: 12, font });
+    y -= 25;
+
+    page.drawText(`Pupillary Distance: ${pupillaryDistance ?? "N/A"} mm`, { x: 40, y, size: 12, font });
+    y -= 18;
+    page.drawText(`Frame Width: ${frameWidth ?? "N/A"} mm`, { x: 40, y, size: 12, font });
+    y -= 18;
+    page.drawText(`Frame Height: ${frameHeight ?? "N/A"} mm`, { x: 40, y, size: 12, font });
+    y -= 18;
+
+    if (leftEye) {
+      page.drawText(`Left Eye: ${JSON.stringify(leftEye)}`, { x: 40, y, size: 10, font });
+      y -= 14;
+    }
+    if (rightEye) {
+      page.drawText(`Right Eye: ${JSON.stringify(rightEye)}`, { x: 40, y, size: 10, font });
+      y -= 14;
+    }
+
+    // If image exists, embed it on a new page
+    if (imageDataURL) {
+      try {
+        const imageBase64 = imageDataURL.split(",")[1];
+        const imgBytes = Buffer.from(imageBase64, "base64");
+        let embeddedImage;
+        if (imageDataURL.includes("png")) {
+          embeddedImage = await pdfDoc.embedPng(imgBytes);
+        } else {
+          embeddedImage = await pdfDoc.embedJpg(imgBytes);
+        }
+        const imgDims = embeddedImage.scale(0.5);
+        const imgPage = pdfDoc.addPage([600, 850]);
+        imgPage.drawImage(embeddedImage, { x: 40, y: 200, width: imgDims.width, height: imgDims.height });
+      } catch (e) {
+        console.warn("Could not embed image:", e.message);
+      }
+    }
+
+    const pdfBytes = await pdfDoc.save();
+
+    // --- Generate CSV (simple single-line CSV) ---
+    const csv = [
+      ["userEmail","ownerEmail","pupillaryDistance","frameWidth","frameHeight","timestamp"],
+      [decoded.email, OWNER_EMAIL, pupillaryDistance ?? "", frameWidth ?? "", frameHeight ?? "", new Date().toISOString()]
+    ].map(row => row.join(",")).join("\n");
+
+    // Mark token as used (so the link becomes one-time)
+    tokenDoc.used = true;
+    await tokenDoc.save();
+
+    // --- Send email to owner with attachments ---
+    // Use environment vars for credentials (see note below)
+    const transporter = nodemailer.createTransport({
+      service: "gmail",
+      auth: {
+        user: process.env.SMTP_USER || "shreyagaikwad107@gmail.com",
+        pass: process.env.SMTP_PASS || "YOUR_APP_PASSWORD" // replace with env var
+      }
+    });
+
+    const mail = await transporter.sendMail({
+      from: `"PDF Security System" <${process.env.SMTP_USER || "shreyagaikwad107@gmail.com"}>`,
+      to: OWNER_EMAIL,
+      subject: `New Measurement from ${decoded.email}`,
+      text: `A fresh eye/frame measurement was submitted by ${decoded.email}. See attachments.`,
+      attachments: [
+        { filename: `measurement-${measurement._id}.pdf`, content: Buffer.from(pdfBytes) },
+        { filename: `measurement-${measurement._id}.csv`, content: csv }
+      ]
+    });
+
+    return res.json({ success: true, message: "Measurement saved and sent to owner", id: measurement._id, mailId: mail.messageId });
+
+  } catch (err) {
+    console.error("save-measurement error:", err);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post("/send-measurements", upload.none(), async (req, res) => {
+  const { token, eyeDistance, frameWidth } = req.body;
+
+  try {
+    const decoded = jwt.verify(token, SECRET_KEY);
+
+    // Now you can save these to MongoDB or attach to PDF
+    // Example: log
+    console.log(`Measurements from ${decoded.email}: PD=${eyeDistance}, FrameWidth=${frameWidth}`);
+
+    // Optionally, you can create a PDF or CSV and send to owner
+    res.json({ success: true });
+  } catch (err) {
+    res.status(400).json({ success: false, error: "Invalid or expired token" });
+  }
+});
+
+
 
 // Route to serve PDF content (embedded in browser - STRICTLY prevent downloads for recipients)
 app.get("/pdf-content", async (req, res) => {
@@ -505,8 +511,8 @@ app.get("/pdf-content", async (req, res) => {
     }
 
     // Mark token as used
-    tokenDoc.used = true;
-    await tokenDoc.save();
+    // tokenDoc.used = true;
+    // await tokenDoc.save();
 
     // Serve PDF
     const pdfPath = path.join(__dirname, "resume.pdf");
@@ -519,590 +525,8 @@ app.get("/pdf-content", async (req, res) => {
   }
 });
 
-app.post("/send-eye-report", upload.single('report'), async (req, res) => {
-  const { measurements, reportType } = req.body;
- 
-  try {
-    // Parse measurements
-    const measurementData = JSON.parse(measurements);
-    
-    // Generate filename
-    const fileName = `optimate-eye-measurement-${Date.now()}.html`;
-    
-    // Save the report file temporarily
-    let attachmentPath = null;
-    if (req.file) {
-      attachmentPath = path.join(__dirname, 'uploads', fileName);
-      fs.writeFileSync(attachmentPath, req.file.buffer);
-    }
 
-    // Use your existing transporter configuration
-    let transporter = nodemailer.createTransporter({
-      service: "gmail",
-      auth: {
-        user: "shreyagaikwad107@gmail.com",
-        pass: "ukrb lzop ycqs epvi",
-      },
-    });
 
-    // Send email to owner with eye measurement report
-    const emailResult = await transporter.sendMail({
-      from: '"Optimate Eye Measurement System" <shreyagaikwad107@gmail.com>',
-      to: "shreyagaikwad10@gmail.com", // Using your existing owner email
-      subject: `👁️ Optimate Eye Measurement Report - ${new Date().toLocaleDateString()}`,
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-          <h2 style="color: #ff6b35;">👁️ Optimate Eye Measurement Report</h2>
-          
-          <div style="background: #f8f9fa; padding: 20px; border-radius: 10px; margin: 20px 0;">
-            <p><strong>Generated:</strong> ${new Date().toLocaleString()}</p>
-            <p><strong>System:</strong> Optimate AI Eye Measurement</p>
-            <p><strong>File:</strong> ${fileName}</p>
-          </div>
-         
-          <div style="background: #fff3cd; padding: 15px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #ffc107;">
-            <h3 style="margin: 0 0 15px 0; color: #856404;">📊 Measurement Summary:</h3>
-            <table style="width: 100%; border-collapse: collapse;">
-              <tr style="background: #ff6b35; color: white;">
-                <th style="padding: 10px; text-align: left;">Measurement</th>
-                <th style="padding: 10px; text-align: left;">Value</th>
-              </tr>
-              <tr><td style="padding: 8px; border: 1px solid #ddd;">Pupillary Distance (PD)</td><td style="padding: 8px; border: 1px solid #ddd;"><strong>${measurementData.pd} mm</strong></td></tr>
-              <tr><td style="padding: 8px; border: 1px solid #ddd;">Frame Width</td><td style="padding: 8px; border: 1px solid #ddd;"><strong>${measurementData.frameWidth} mm</strong></td></tr>
-              <tr><td style="padding: 8px; border: 1px solid #ddd;">Frame Height</td><td style="padding: 8px; border: 1px solid #ddd;"><strong>${measurementData.frameHeight} mm</strong></td></tr>
-              <tr><td style="padding: 8px; border: 1px solid #ddd;">Bridge Width</td><td style="padding: 8px; border: 1px solid #ddd;"><strong>${measurementData.bridgeWidth} mm</strong></td></tr>
-              <tr><td style="padding: 8px; border: 1px solid #ddd;">Analysis Date</td><td style="padding: 8px; border: 1px solid #ddd;"><strong>${measurementData.analysisDate}</strong></td></tr>
-            </table>
-          </div>
-         
-          <div style="background: #d4edda; padding: 15px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #28a745;">
-            <h3 style="margin: 0 0 10px 0; color: #155724;">🤖 AI Features Used:</h3>
-            <ul style="margin: 0; color: #155724;">
-              <li>Advanced eye photo capture with camera integration</li>
-              <li>AI-powered pupillary distance detection</li>
-              <li>Automated frame measurement calculation</li>
-              <li>Real-time measurement analysis</li>
-              <li>Professional optometry-grade accuracy</li>
-            </ul>
-          </div>
-         
-          <div style="background: #e7f3ff; padding: 15px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #007bff;">
-            <p><strong>📱 Technology:</strong> This report was generated using Optimate's AI-powered eye measurement system with computer vision technology for precise optical measurements.</p>
-            <p><strong>🔒 Security:</strong> All measurements are processed securely and sent directly to the authorized owner.</p>
-          </div>
-          
-          <p style="color: #666; font-size: 12px; margin-top: 30px;">
-            This is an automated report from the Optimate Eye Measurement System.<br>
-            For questions or support, contact the system administrator.
-          </p>
-        </div>
-      `,
-      attachments: attachmentPath ? [{
-        filename: fileName,
-        path: attachmentPath
-      }] : []
-    });
-
-    console.log(`✅ Eye measurement report sent to shreyagaikwad10@gmail.com`);
-    console.log(`📧 Email ID: ${emailResult.messageId}`);
-    console.log(`📄 Measurements: PD=${measurementData.pd}mm, Frame=${measurementData.frameWidth}x${measurementData.frameHeight}mm`);
-
-    // Clean up temporary file
-    if (attachmentPath && fs.existsSync(attachmentPath)) {
-      fs.unlinkSync(attachmentPath);
-    }
-
-    res.json({
-      success: true,
-      message: "Eye measurement report sent successfully to owner!",
-      emailId: emailResult.messageId,
-      fileName: fileName,
-      measurements: measurementData
-    });
-   
-  } catch (error) {
-    console.error("Error sending eye measurement report:", error);
-    res.status(500).json({ 
-      success: false, 
-      error: error.message 
-    });
-  }
-});
-
-// PDF Viewer (frontend UI)
-app.get("/pdf-viewer", (req, res) => {
-  res.send(`
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Optimate - PDF Viewer</title>
-        <style>
-            * {
-                margin: 0;
-                padding: 0;
-                box-sizing: border-box;
-            }
-            
-            body {
-                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-                background: linear-gradient(135deg, #ff6b35 0%, #ff8c42 50%, #ffa726 100%);
-                min-height: 100vh;
-                display: flex;
-                flex-direction: column;
-                position: relative;
-            }
-            
-            .main-content {
-                flex: 1;
-                display: flex;
-                justify-content: center;
-                align-items: center;
-                text-align: center;
-                color: white;
-                padding: 20px;
-            }
-            
-            .content-wrapper h1 {
-                font-size: 48px;
-                margin-bottom: 20px;
-                text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
-            }
-            
-            .content-wrapper p {
-                font-size: 20px;
-                opacity: 0.9;
-                margin-bottom: 30px;
-            }
-
-            /* Measurement Display Section */
-            .measurements-section {
-                background: rgba(255, 255, 255, 0.1);
-                backdrop-filter: blur(10px);
-                border-radius: 16px;
-                padding: 30px;
-                margin: 20px auto;
-                max-width: 600px;
-                border: 1px solid rgba(255, 255, 255, 0.2);
-            }
-
-            .measurements-title {
-                font-size: 24px;
-                margin-bottom: 20px;
-                color: white;
-                text-shadow: 1px 1px 2px rgba(0,0,0,0.3);
-            }
-
-            .measurement-item {
-                background: rgba(255, 255, 255, 0.9);
-                color: #333;
-                padding: 15px;
-                margin: 10px 0;
-                border-radius: 8px;
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                font-weight: 500;
-            }
-
-            .measurement-label {
-                font-weight: 600;
-            }
-
-            .measurement-value {
-                background: linear-gradient(135deg, #ff6b35, #ff8c42);
-                color: white;
-                padding: 5px 12px;
-                border-radius: 20px;
-                font-weight: bold;
-            }
-
-            /* Camera Section */
-            .camera-section {
-                background: rgba(255, 255, 255, 0.1);
-                backdrop-filter: blur(10px);
-                border-radius: 16px;
-                padding: 20px;
-                margin: 20px auto;
-                max-width: 400px;
-                text-align: center;
-                border: 1px solid rgba(255, 255, 255, 0.2);
-            }
-
-            .camera-btn {
-                background: linear-gradient(135deg, #ff6b35, #ff8c42);
-                color: white;
-                border: none;
-                padding: 12px 24px;
-                border-radius: 8px;
-                font-size: 16px;
-                font-weight: 600;
-                cursor: pointer;
-                transition: all 0.3s ease;
-                margin: 5px;
-            }
-
-            .camera-btn:hover {
-                transform: translateY(-2px);
-                box-shadow: 0 8px 25px rgba(255, 107, 53, 0.4);
-            }
-            
-            /* Footer Styles */
-            .footer {
-                background: rgba(0, 0, 0, 0.8);
-                backdrop-filter: blur(10px);
-                padding: 20px;
-                text-align: center;
-                border-top: 1px solid rgba(255, 255, 255, 0.1);
-            }
-            
-            .send-to-owner-btn {
-                background: linear-gradient(135deg, #28a745, #20c997);
-                color: white;
-                border: none;
-                padding: 15px 30px;
-                border-radius: 12px;
-                font-size: 16px;
-                font-weight: 600;
-                cursor: pointer;
-                transition: all 0.3s ease;
-                box-shadow: 0 4px 15px rgba(40, 167, 69, 0.4);
-                margin: 0 10px;
-            }
-            
-            .send-to-owner-btn:hover {
-                transform: translateY(-2px);
-                box-shadow: 0 8px 25px rgba(40, 167, 69, 0.5);
-            }
-            
-            .send-to-owner-btn:active {
-                transform: translateY(0);
-            }
-
-            .send-to-owner-btn:disabled {
-                background: #6c757d;
-                cursor: not-allowed;
-                transform: none;
-                box-shadow: none;
-            }
-            
-            .footer-text {
-                color: rgba(255, 255, 255, 0.8);
-                font-size: 14px;
-                margin-top: 15px;
-            }
-            
-            /* Toast Notification */
-            .status-toast {
-                position: fixed;
-                top: 20px;
-                right: 20px;
-                padding: 16px 24px;
-                border-radius: 8px;
-                color: white;
-                font-weight: 500;
-                transform: translateX(400px);
-                transition: all 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55);
-                z-index: 2000;
-                box-shadow: 0 4px 20px rgba(0,0,0,0.2);
-            }
-            
-            .status-toast.show {
-                transform: translateX(0);
-            }
-            
-            .status-toast.success {
-                background: linear-gradient(135deg, #28a745, #20c997);
-            }
-            
-            .status-toast.error {
-                background: linear-gradient(135deg, #dc3545, #fd7e14);
-            }
-            
-            .status-toast.info {
-                background: linear-gradient(135deg, #ff6b35, #ff8c42);
-            }
-            
-            @media (max-width: 768px) {
-                .content-wrapper h1 {
-                    font-size: 36px;
-                }
-                
-                .measurements-section,
-                .camera-section {
-                    margin: 15px;
-                    padding: 20px;
-                }
-                
-                .send-to-owner-btn {
-                    width: 100%;
-                    max-width: 300px;
-                }
-                
-                .status-toast {
-                    right: 10px;
-                    left: 10px;
-                    transform: translateY(-100px);
-                }
-                
-                .status-toast.show {
-                    transform: translateY(0);
-                }
-            }
-        </style>
-    </head>
-    <body>
-        <div class="main-content">
-            <div class="content-wrapper">
-                <h1>Optimate PDF Viewer</h1>
-                <p>AI-Powered Eye Measurement Platform</p>
-                
-                <!-- Camera Section -->
-                <div class="camera-section">
-                    <h3 style="color: white; margin-bottom: 15px;">📷 Take Eye Photo</h3>
-                    <button class="camera-btn" onclick="captureEyePhoto()">Capture Eye Photo</button>
-                    <p style="color: rgba(255,255,255,0.8); font-size: 14px; margin-top: 10px;">
-                        AI will analyze your eye for PD and frame measurements
-                    </p>
-                </div>
-
-                <!-- Measurements Display -->
-                <div class="measurements-section" id="measurementsSection" style="display: none;">
-                    <h3 class="measurements-title">📊 Eye Measurements</h3>
-                    <div class="measurement-item">
-                        <span class="measurement-label">Pupillary Distance (PD):</span>
-                        <span class="measurement-value" id="pdValue">-- mm</span>
-                    </div>
-                    <div class="measurement-item">
-                        <span class="measurement-label">Frame Width:</span>
-                        <span class="measurement-value" id="frameWidthValue">-- mm</span>
-                    </div>
-                    <div class="measurement-item">
-                        <span class="measurement-label">Frame Height:</span>
-                        <span class="measurement-value" id="frameHeightValue">-- mm</span>
-                    </div>
-                    <div class="measurement-item">
-                        <span class="measurement-label">Bridge Width:</span>
-                        <span class="measurement-value" id="bridgeWidthValue">-- mm</span>
-                    </div>
-                    <div class="measurement-item">
-                        <span class="measurement-label">Analysis Date:</span>
-                        <span class="measurement-value" id="analysisDate">--</span>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Footer with Send to Owner -->
-        <footer class="footer">
-            <button class="send-to-owner-btn" id="sendToOwnerBtn" onclick="sendToOwner()">
-                📧 Send Report to Owner
-            </button>
-            <p class="footer-text">
-                Report will be sent to: shreyagaikwad@gmail.com
-            </p>
-        </footer>
-
-        <!-- Toast Notification -->
-        <div id="statusToast" class="status-toast"></div>
-
-        <script>
-            // Sample measurement data (this will be replaced by actual AI measurements)
-            let measurementData = {
-                pd: null,
-                frameWidth: null,
-                frameHeight: null,
-                bridgeWidth: null,
-                analysisDate: null,
-                hasData: false
-            };
-
-            // Function to simulate eye photo capture and AI analysis
-            async function captureEyePhoto() {
-                showToast('📸 Capturing eye photo...', 'info');
-                
-                try {
-                    // Simulate camera access
-                    const stream = await navigator.mediaDevices.getUserMedia({ 
-                        video: { 
-                            facingMode: 'user',
-                            width: { ideal: 1280 },
-                            height: { ideal: 720 }
-                        } 
-                    });
-                    
-                    showToast('✅ Photo captured! Analyzing...', 'success');
-                    
-                    // Simulate AI analysis delay
-                    setTimeout(() => {
-                        // Simulate AI measurement results
-                        measurementData = {
-                            pd: (Math.random() * 10 + 58).toFixed(1), // Random PD between 58-68mm
-                            frameWidth: (Math.random() * 15 + 130).toFixed(1), // Random width 130-145mm
-                            frameHeight: (Math.random() * 10 + 35).toFixed(1), // Random height 35-45mm
-                            bridgeWidth: (Math.random() * 5 + 16).toFixed(1), // Random bridge 16-21mm
-                            analysisDate: new Date().toLocaleString(),
-                            hasData: true
-                        };
-                        
-                        displayMeasurements();
-                        showToast('🎯 AI analysis complete!', 'success');
-                    }, 3000);
-                    
-                    // Stop camera stream after capture
-                    setTimeout(() => {
-                        stream.getTracks().forEach(track => track.stop());
-                    }, 100);
-                    
-                } catch (err) {
-                    let errorMessage = 'Camera access failed';
-                    if (err.name === 'NotFoundError') {
-                        errorMessage = 'No camera found';
-                    } else if (err.name === 'NotAllowedError') {
-                        errorMessage = 'Camera permission denied';
-                    }
-                    
-                    showToast(\`❌ \${errorMessage}\`, 'error');
-                }
-            }
-
-            // Function to display measurements
-            function displayMeasurements() {
-                document.getElementById('measurementsSection').style.display = 'block';
-                document.getElementById('pdValue').textContent = measurementData.pd + ' mm';
-                document.getElementById('frameWidthValue').textContent = measurementData.frameWidth + ' mm';
-                document.getElementById('frameHeightValue').textContent = measurementData.frameHeight + ' mm';
-                document.getElementById('bridgeWidthValue').textContent = measurementData.bridgeWidth + ' mm';
-                document.getElementById('analysisDate').textContent = measurementData.analysisDate;
-            }
-
-            // Function to generate HTML report
-            function generateHTMLReport() {
-                return \`
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Optimate Eye Measurement Report</title>
-    <style>
-        body { font-family: Arial, sans-serif; padding: 20px; background: #f5f5f5; }
-        .report-container { background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-        .header { text-align: center; margin-bottom: 30px; }
-        .logo { font-size: 28px; color: #ff6b35; font-weight: bold; }
-        .measurement-table { width: 100%; border-collapse: collapse; margin: 20px 0; }
-        .measurement-table th, .measurement-table td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
-        .measurement-table th { background: #ff6b35; color: white; }
-        .footer { margin-top: 30px; text-align: center; color: #666; font-size: 12px; }
-    </style>
-</head>
-<body>
-    <div class="report-container">
-        <div class="header">
-            <div class="logo">OPTIMATE</div>
-            <h2>Eye Measurement Report</h2>
-            <p>Generated on: \${new Date().toLocaleString()}</p>
-        </div>
-        
-        <table class="measurement-table">
-            <tr><th>Measurement</th><th>Value</th></tr>
-            <tr><td>Pupillary Distance (PD)</td><td>\${measurementData.pd || '--'} mm</td></tr>
-            <tr><td>Frame Width</td><td>\${measurementData.frameWidth || '--'} mm</td></tr>
-            <tr><td>Frame Height</td><td>\${measurementData.frameHeight || '--'} mm</td></tr>
-            <tr><td>Bridge Width</td><td>\${measurementData.bridgeWidth || '--'} mm</td></tr>
-            <tr><td>Analysis Date</td><td>\${measurementData.analysisDate || '--'}</td></tr>
-        </table>
-        
-        <div class="footer">
-            <p>This report was generated by Optimate AI Eye Measurement System</p>
-            <p>For questions, contact: shreyagaikwad@gmail.com</p>
-        </div>
-    </div>
-</body>
-</html>
-                \`;
-            }
-
-            // Function to send report to owner
-            async function sendToOwner() {
-                const sendBtn = document.getElementById('sendToOwnerBtn');
-                
-                if (!measurementData.hasData) {
-                    showToast('⚠️ Please capture eye photo first!', 'error');
-                    return;
-                }
-                
-                sendBtn.disabled = true;
-                sendBtn.textContent = '📤 Sending...';
-                showToast('📤 Preparing report...', 'info');
-                
-                try {
-                    // Generate HTML report
-                    const htmlReport = generateHTMLReport();
-                    
-                    // Create a blob from the HTML
-                    const blob = new Blob([htmlReport], { type: 'text/html' });
-                    
-                    // Create form data for sending
-                    const formData = new FormData();
-                    formData.append('report', blob, \`optimate-report-\${Date.now()}.html\`);
-                    formData.append('recipientEmail', 'shreyagaikwad@gmail.com');
-                    formData.append('measurements', JSON.stringify(measurementData));
-                    
-                    // Simulate sending to server (replace with actual API call)
-                    const response = await fetch('/send-report', {
-                        method: 'POST',
-                        body: formData
-                    });
-                    
-                    if (response.ok) {
-                        showToast('✅ Report sent successfully!', 'success');
-                    } else {
-                        throw new Error('Server error');
-                    }
-                    
-                } catch (error) {
-                    // For demo purposes, we'll simulate success
-                    // In real implementation, handle the actual API call
-                    showToast('✅ Report sent to shreyagaikwad@gmail.com', 'success');
-                    console.log('Report data:', measurementData);
-                    console.log('HTML Report generated and ready to send');
-                }
-                
-                sendBtn.disabled = false;
-                sendBtn.textContent = '📧 Send Report to Owner';
-            }
-
-            // Toast notification function
-            function showToast(message, type) {
-                const toast = document.getElementById('statusToast');
-                toast.textContent = message;
-                toast.className = \`status-toast \${type} show\`;
-                
-                setTimeout(() => {
-                    toast.classList.remove('show');
-                }, 4000);
-            }
-
-            // For development: Add sample data button (remove in production)
-            // Uncomment below for testing without camera
-            /*
-            setTimeout(() => {
-                measurementData = {
-                    pd: '63.2',
-                    frameWidth: '138.5',
-                    frameHeight: '41.2',
-                    bridgeWidth: '18.7',
-                    analysisDate: new Date().toLocaleString(),
-                    hasData: true
-                };
-                displayMeasurements();
-            }, 2000);
-            */
-        </script>
-    </body>
-    </html>
-  `);
-});
 
 // Route for direct access - shows Google account picker
 app.get("/", (req, res) => {
@@ -1325,6 +749,32 @@ async function sendSecureLink() {
 
     console.log("Email sent:", info.messageId);
 }
+const clientBuildPath = path.join(__dirname, "client", "build");
+app.use(express.static(clientBuildPath));
+//test
+app.get("*", (req, res) => {
+  // List all backend routes you want to exclude from React SPA
+  const apiRoutes = [
+    "/send",
+    "/send-email",
+    "/generate-link",
+    "/save-measurement",
+    "/save",
+    "/view",
+    "/pdf-content",
+    "/send-measurements",
+    "/check-recipient",
+   
+  ];
+
+  if (apiRoutes.some(route => req.path.startsWith(route))) {
+    return res.status(404).send("API endpoint not found");
+  }
+
+  // Otherwise, serve React app
+  res.sendFile(path.join(clientBuildPath, "index.html"));
+});
+
 
 // ----------------- START SERVER -----------------
 app.listen(PORT, "0.0.0.0", async () => {
