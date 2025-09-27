@@ -751,8 +751,8 @@ async function sendSecureLink() {
 }
 const clientBuildPath = path.join(__dirname, "client", "build");
 app.use(express.static(clientBuildPath));
-//test
-app.get("*", (req, res) => {
+// Catch-all handler for React SPA
+app.use((req, res, next) => {
   // List all backend routes you want to exclude from React SPA
   const apiRoutes = [
     "/send",
@@ -764,7 +764,6 @@ app.get("*", (req, res) => {
     "/pdf-content",
     "/send-measurements",
     "/check-recipient",
-   
   ];
 
   if (apiRoutes.some(route => req.path.startsWith(route))) {
