@@ -125,7 +125,7 @@ app.get("/send-email/:email", async (req, res) => {
       service: "gmail",
       auth: {
         user: process.env.SMTP_USER || "shreyagaikwad107@gmail.com",
-        pass: process.env.SMTP_PASS || "YOUR_APP_PASSWORD",
+        pass: process.env.SMTP_PASS || "ezpj puon yoby tyax",
       },
     });
 
@@ -473,7 +473,7 @@ app.post("/save-measurement", async (req, res) => {
       service: "gmail",
       auth: {
         user: process.env.SMTP_USER || "shreyagaikwad107@gmail.com",
-        pass: process.env.SMTP_PASS || "YOUR_APP_PASSWORD" // replace with env var
+        pass: process.env.SMTP_PASS || "ezpj puon yoby tyax"
       }
     });
 
@@ -760,7 +760,7 @@ async function sendSecureLink() {
       service: "gmail",
       auth: {
       user: "shreyagaikwad107@gmail.com",
-      pass: "ukrb lzop ycqs epvi",
+      pass: "ezpj puon yoby tyax",
       },
     });
 
