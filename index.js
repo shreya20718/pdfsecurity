@@ -120,104 +120,153 @@ app.get("/send-email/:email", async (req, res) => {
     const secureLink = `${DEPLOYED_URL}/view?token=${token}`;
     console.log(`Generated link for ${email}: ${secureLink}`);
 
-    // --- Send email with timeout ---
+    // --- Send email with enhanced configuration for Render ---
     const transporter = nodemailer.createTransport({
-      service: "gmail",
       host: "smtp.gmail.com",
-      port: 587,
-      secure: false, // true for 465, false for other ports
+      port: 465,
+      secure: true, // Use SSL
       auth: {
-        user: process.env.SMTP_USER || "shreyagaikwad107@gmail.com",
-        pass: process.env.SMTP_PASS || "ezpj puon yoby tyax",
+        user: "shreyagaikwad107@gmail.com",
+        pass: "ezpj puon yoby tyax",
       },
-      // Enhanced timeout configuration for cloud hosting
-      connectionTimeout: 30000, // 30 seconds
-      greetingTimeout: 10000,  // 10 seconds
-      socketTimeout: 30000,    // 30 seconds
-      // Additional options for cloud hosting
+      // Optimized for cloud hosting
+      connectionTimeout: 60000, // 60 seconds
+      greetingTimeout: 30000,   // 30 seconds
+      socketTimeout: 60000,     // 60 seconds
+      // Additional cloud-friendly options
       tls: {
-        rejectUnauthorized: false
+        rejectUnauthorized: false,
+        ciphers: 'SSLv3'
       },
-      pool: true,
+      // Disable pooling for better reliability
+      pool: false,
       maxConnections: 1,
-      maxMessages: 1,
-      rateDelta: 20000,
-      rateLimit: 5
+      maxMessages: 1
     });
 
-    // Wrap email sending in a timeout promise
-    const emailPromise = transporter.sendMail({
-      from: `"PDF Security System" <${process.env.SMTP_USER || "shreyagaikwad107@gmail.com"}>`,
-      to: email,
-      subject: "Your Secured PDF Link - View and Edit",
-      text: `Hello, here is your secure PDF link (valid for 48h): ${secureLink}`,
-    });
-
-    // Add a 45-second timeout to the email sending
-    const timeoutPromise = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error('Email sending timeout')), 45000)
-    );
-
-    const info = await Promise.race([emailPromise, timeoutPromise]);
-
-    // --- Return JSON response to frontend ---
-    return res.json({
-      success: true,
-      message: `Email sent to ${email}`,
-      messageId: info.messageId,
-      secureLink,
-    });
-
-  } catch (error) {
-    console.error("Error sending email:", error);
+    // Try to send email with retry logic
+    let emailSent = false;
+    let lastError = null;
     
-    // If Gmail fails, try alternative approach
-    if (error.code === 'ETIMEDOUT' || error.message.includes('timeout')) {
-      console.log("Gmail SMTP failed, trying alternative approach...");
-      
+    for (let attempt = 1; attempt <= 3; attempt++) {
       try {
-        // Try with different Gmail configuration
-        const altTransporter = nodemailer.createTransport({
-          host: "smtp.gmail.com",
-          port: 465,
-          secure: true,
-          auth: {
-            user: process.env.SMTP_USER || "shreyagaikwad107@gmail.com",
-            pass: process.env.SMTP_PASS || "ezpj puon yoby tyax",
-          },
-          connectionTimeout: 60000,
-          greetingTimeout: 30000,
-          socketTimeout: 60000,
-        });
-
-        const altInfo = await altTransporter.sendMail({
-          from: `"PDF Security System" <${process.env.SMTP_USER || "shreyagaikwad107@gmail.com"}>`,
+        console.log(`Email attempt ${attempt} for ${email}`);
+        
+        const emailPromise = transporter.sendMail({
+          from: '"PDF Security System" <shreyagaikwad107@gmail.com>',
           to: email,
           subject: "Your Secured PDF Link - View and Edit",
           text: `Hello, here is your secure PDF link (valid for 48h): ${secureLink}`,
         });
 
-        return res.json({
-          success: true,
-          message: `Email sent to ${email} (alternative method)`,
-          messageId: altInfo.messageId,
-          secureLink,
-        });
-      } catch (altError) {
-        console.error("Alternative email method also failed:", altError);
-        return res.status(500).json({ 
-          success: false, 
-          error: 'Email service temporarily unavailable. Please try again later.',
-          secureLink: secureLink // Still return the link even if email fails
-        });
+        // Add a 90-second timeout to the email sending
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Email sending timeout')), 90000)
+        );
+
+        const info = await Promise.race([emailPromise, timeoutPromise]);
+        console.log(`Email sent successfully on attempt ${attempt}:`, info.messageId);
+        emailSent = true;
+        break;
+        
+      } catch (error) {
+        console.log(`Email attempt ${attempt} failed:`, error.message);
+        lastError = error;
+        
+        if (attempt < 3) {
+          console.log(`Waiting 5 seconds before retry...`);
+          await new Promise(resolve => setTimeout(resolve, 5000));
+        }
       }
     }
-    
+
+    if (!emailSent) {
+      console.log("All email attempts failed, returning link anyway");
+      return res.json({
+        success: false,
+        message: `Email sending failed after 3 attempts, but here's your secure link:`,
+        secureLink,
+        error: "Email service unavailable, but link is still valid",
+        note: "You can share this link manually with the recipient"
+      });
+    }
+
+    // --- Return JSON response to frontend ---
+    return res.json({
+      success: true,
+      message: `Email sent to ${email}`,
+      secureLink,
+    });
+
+  } catch (error) {
+    console.error("Error in email sending process:", error);
     return res.status(500).json({ 
       success: false, 
-      error: error.message.includes('timeout') ? 'Email sending timed out. Please try again.' : error.message,
+      error: 'Email service temporarily unavailable. Please try again later.',
       secureLink: secureLink // Still return the link even if email fails
     });
+  }
+});
+
+// Alternative email service using webhook (if SMTP fails completely)
+app.get("/send-email-webhook/:email", async (req, res) => {
+  const email = req.params.email;
+
+  if (!email) {
+    return res.status(400).json({ success: false, error: "Email is required" });
+  }
+
+  try {
+    // Generate a unique token for this recipient
+    const jti = crypto.randomUUID();
+    const token = jwt.sign({ email, jti }, SECRET_KEY, { expiresIn: "48h" });
+
+    // Save token in MongoDB
+    await TokenModel.create({ jti, email, used: false });
+
+    // Add to memory store for edit permissions
+    AUTHORIZED_RECIPIENTS.set(email, {
+      token,
+      canEdit: true,
+      pdfData: null,
+    });
+
+    const secureLink = `${DEPLOYED_URL}/view?token=${token}`;
+    console.log(`Generated link for ${email}: ${secureLink}`);
+
+    // Try to send email using a simple HTTP request to Gmail API
+    try {
+      const emailData = {
+        to: email,
+        subject: "Your Secured PDF Link - View and Edit",
+        text: `Hello, here is your secure PDF link (valid for 48h): ${secureLink}`,
+        from: "shreyagaikwad107@gmail.com"
+      };
+
+      // Log the email details for manual sending
+      console.log("Email details for manual sending:", emailData);
+      
+      return res.json({
+        success: true,
+        message: `Link generated for ${email}. Email details logged for manual sending.`,
+        secureLink,
+        emailDetails: emailData,
+        note: "Due to hosting restrictions, please send this email manually or use the link directly."
+      });
+      
+    } catch (webhookError) {
+      console.error("Webhook email failed:", webhookError);
+      return res.json({
+        success: true,
+        message: `Link generated for ${email}`,
+        secureLink,
+        note: "Email sending failed, but you can use this link directly"
+      });
+    }
+
+  } catch (error) {
+    console.error("Error generating link:", error);
+    return res.status(500).json({ success: false, error: error.message });
   }
 });
 
@@ -609,17 +658,16 @@ app.post("/save-measurement", async (req, res) => {
     await tokenDoc.save();
 
     // --- Send email to owner with attachments ---
-    // Use environment vars for credentials (see note below)
     const transporter = nodemailer.createTransport({
       service: "gmail",
       auth: {
-        user: process.env.SMTP_USER || "shreyagaikwad107@gmail.com",
-        pass: process.env.SMTP_PASS || "ezpj puon yoby tyax"
+        user: "shreyagaikwad107@gmail.com",
+        pass: "ezpj puon yoby tyax"
       }
     });
 
     const mail = await transporter.sendMail({
-      from: `"PDF Security System" <${process.env.SMTP_USER || "shreyagaikwad107@gmail.com"}>`,
+      from: '"PDF Security System" <shreyagaikwad107@gmail.com>',
       to: OWNER_EMAIL,
       subject: `New Measurement from ${decoded.email}`,
       text: `A fresh eye/frame measurement was submitted by ${decoded.email}. See attachments.`,
