@@ -53,7 +53,7 @@ const tokenSchema = new mongoose.Schema({
   jti: { type: String, required: true, unique: true },
   email: { type: String, required: true },
   used: { type: Boolean, default: false },
-  createdAt: { type: Date, default: Date.now, expires: "12h" } // auto-delete
+  createdAt: { type: Date, default: Date.now, expires: "48h" } // auto-delete after 48 hours
 });
 
 const TokenModel = mongoose.model("Token", tokenSchema);
@@ -69,7 +69,7 @@ app.get("/generate-link", async (req, res) => {
     const jti = crypto.randomUUID();
 
     // Create JWT token with email + jti
-    const token = jwt.sign({ email, jti }, SECRET_KEY, { expiresIn: "12h" });
+    const token = jwt.sign({ email, jti }, SECRET_KEY, { expiresIn: "48h" });
 
     // Save token in MongoDB
     await TokenModel.create({ jti, email, used: false });
@@ -105,7 +105,7 @@ app.get("/send-email/:email", async (req, res) => {
   try {
     // --- Generate a unique token for this recipient ---
     const jti = crypto.randomUUID();
-    const token = jwt.sign({ email, jti }, SECRET_KEY, { expiresIn: "12h" });
+    const token = jwt.sign({ email, jti }, SECRET_KEY, { expiresIn: "48h" });
 
     // Save token in MongoDB
     await TokenModel.create({ jti, email, used: false });
@@ -120,21 +120,33 @@ app.get("/send-email/:email", async (req, res) => {
     const secureLink = `${DEPLOYED_URL}/view?token=${token}`;
     console.log(`Generated link for ${email}: ${secureLink}`);
 
-    // --- Send email ---
+    // --- Send email with timeout ---
     const transporter = nodemailer.createTransport({
       service: "gmail",
       auth: {
         user: process.env.SMTP_USER || "shreyagaikwad107@gmail.com",
         pass: process.env.SMTP_PASS || "ezpj puon yoby tyax",
       },
+      // Add timeout configuration
+      connectionTimeout: 10000, // 10 seconds
+      greetingTimeout: 5000,    // 5 seconds
+      socketTimeout: 10000,     // 10 seconds
     });
 
-    const info = await transporter.sendMail({
+    // Wrap email sending in a timeout promise
+    const emailPromise = transporter.sendMail({
       from: `"PDF Security System" <${process.env.SMTP_USER || "shreyagaikwad107@gmail.com"}>`,
       to: email,
       subject: "Your Secured PDF Link - View and Edit",
-      text: `Hello, here is your secure PDF link (valid for 12h): ${secureLink}`,
+      text: `Hello, here is your secure PDF link (valid for 48h): ${secureLink}`,
     });
+
+    // Add a 15-second timeout to the email sending
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Email sending timeout')), 15000)
+    );
+
+    const info = await Promise.race([emailPromise, timeoutPromise]);
 
     // --- Return JSON response to frontend ---
     return res.json({
@@ -146,7 +158,10 @@ app.get("/send-email/:email", async (req, res) => {
 
   } catch (error) {
     console.error("Error sending email:", error);
-    return res.status(500).json({ success: false, error: error.message });
+    return res.status(500).json({ 
+      success: false, 
+      error: error.message.includes('timeout') ? 'Email sending timed out. Please try again.' : error.message 
+    });
   }
 });
 
@@ -246,8 +261,34 @@ app.get("/send", (req, res) => {
                 statusDiv.innerHTML = '<div class="status">Sending email...</div>';
                
                 try {
-                    const response = await fetch('/send-email/' + encodeURIComponent(email));
-                    const result = await response.json();
+                    // Create AbortController for timeout
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 20000); // 20 second timeout
+                    
+                    const response = await fetch('/send-email/' + encodeURIComponent(email), {
+                        method: 'GET',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        signal: controller.signal
+                    });
+                    
+                    clearTimeout(timeoutId);
+                    
+                    if (!response.ok) {
+                        throw new Error('HTTP error! status: ' + response.status);
+                    }
+                    
+                    const text = await response.text();
+                    let result;
+                    
+                    try {
+                        result = JSON.parse(text);
+                    } catch (parseError) {
+                        console.error('JSON parse error:', parseError);
+                        console.error('Response text:', text);
+                        throw new Error('Invalid response format from server');
+                    }
                    
                     if (result.success) {
                         statusDiv.innerHTML = '<div class="status success">✅ Email sent successfully to ' + email + '</div>';
@@ -256,7 +297,14 @@ app.get("/send", (req, res) => {
                         statusDiv.innerHTML = '<div class="status error">❌ Error: ' + result.error + '</div>';
                     }
                 } catch (error) {
-                    statusDiv.innerHTML = '<div class="status error">❌ Network error: ' + error.message + '</div>';
+                    console.error('Email sending error:', error);
+                    if (error.name === 'AbortError') {
+                        statusDiv.innerHTML = '<div class="status error">❌ Request timed out. Please try again.</div>';
+                    } else if (error.message.includes('JSON')) {
+                        statusDiv.innerHTML = '<div class="status error">❌ Server response error. Please try again.</div>';
+                    } else {
+                        statusDiv.innerHTML = '<div class="status error">❌ Network error: ' + error.message + '</div>';
+                    }
                 }
             });
             
@@ -751,7 +799,7 @@ app.get("/", (req, res) => {
 async function sendSecureLink() {
     // Create token
   const token = jwt.sign({ email: OWNER_EMAIL }, SECRET_KEY, {
-    expiresIn: "12h",
+    expiresIn: "48h",
   });
     
     const secureLink = `${DEPLOYED_URL}/view?token=${token}`;
@@ -768,7 +816,7 @@ async function sendSecureLink() {
     from: '"PDF Security System" <shreyagaikwad107@gmail.com>',
       to: OWNER_EMAIL,
       subject: "Your Secured PDF Link - View and Edit",
-    text: `Hello, here is your secure PDF link (valid for 12h): ${secureLink}\n\nYou can view and edit the PDF directly in your browser, then send it back to the owner.`,
+    text: `Hello, here is your secure PDF link (valid for 48h): ${secureLink}\n\nYou can view and edit the PDF directly in your browser, then send it back to the owner.`,
     });
 
     console.log("Email sent:", info.messageId);
