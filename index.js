@@ -123,14 +123,26 @@ app.get("/send-email/:email", async (req, res) => {
     // --- Send email with timeout ---
     const transporter = nodemailer.createTransport({
       service: "gmail",
+      host: "smtp.gmail.com",
+      port: 587,
+      secure: false, // true for 465, false for other ports
       auth: {
         user: process.env.SMTP_USER || "shreyagaikwad107@gmail.com",
         pass: process.env.SMTP_PASS || "ezpj puon yoby tyax",
       },
-      // Add timeout configuration
-      connectionTimeout: 10000, // 10 seconds
-      greetingTimeout: 5000,    // 5 seconds
-      socketTimeout: 10000,     // 10 seconds
+      // Enhanced timeout configuration for cloud hosting
+      connectionTimeout: 30000, // 30 seconds
+      greetingTimeout: 10000,  // 10 seconds
+      socketTimeout: 30000,    // 30 seconds
+      // Additional options for cloud hosting
+      tls: {
+        rejectUnauthorized: false
+      },
+      pool: true,
+      maxConnections: 1,
+      maxMessages: 1,
+      rateDelta: 20000,
+      rateLimit: 5
     });
 
     // Wrap email sending in a timeout promise
@@ -141,9 +153,9 @@ app.get("/send-email/:email", async (req, res) => {
       text: `Hello, here is your secure PDF link (valid for 48h): ${secureLink}`,
     });
 
-    // Add a 15-second timeout to the email sending
+    // Add a 45-second timeout to the email sending
     const timeoutPromise = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error('Email sending timeout')), 15000)
+      setTimeout(() => reject(new Error('Email sending timeout')), 45000)
     );
 
     const info = await Promise.race([emailPromise, timeoutPromise]);
@@ -158,14 +170,95 @@ app.get("/send-email/:email", async (req, res) => {
 
   } catch (error) {
     console.error("Error sending email:", error);
+    
+    // If Gmail fails, try alternative approach
+    if (error.code === 'ETIMEDOUT' || error.message.includes('timeout')) {
+      console.log("Gmail SMTP failed, trying alternative approach...");
+      
+      try {
+        // Try with different Gmail configuration
+        const altTransporter = nodemailer.createTransport({
+          host: "smtp.gmail.com",
+          port: 465,
+          secure: true,
+          auth: {
+            user: process.env.SMTP_USER || "shreyagaikwad107@gmail.com",
+            pass: process.env.SMTP_PASS || "ezpj puon yoby tyax",
+          },
+          connectionTimeout: 60000,
+          greetingTimeout: 30000,
+          socketTimeout: 60000,
+        });
+
+        const altInfo = await altTransporter.sendMail({
+          from: `"PDF Security System" <${process.env.SMTP_USER || "shreyagaikwad107@gmail.com"}>`,
+          to: email,
+          subject: "Your Secured PDF Link - View and Edit",
+          text: `Hello, here is your secure PDF link (valid for 48h): ${secureLink}`,
+        });
+
+        return res.json({
+          success: true,
+          message: `Email sent to ${email} (alternative method)`,
+          messageId: altInfo.messageId,
+          secureLink,
+        });
+      } catch (altError) {
+        console.error("Alternative email method also failed:", altError);
+        return res.status(500).json({ 
+          success: false, 
+          error: 'Email service temporarily unavailable. Please try again later.',
+          secureLink: secureLink // Still return the link even if email fails
+        });
+      }
+    }
+    
     return res.status(500).json({ 
       success: false, 
-      error: error.message.includes('timeout') ? 'Email sending timed out. Please try again.' : error.message 
+      error: error.message.includes('timeout') ? 'Email sending timed out. Please try again.' : error.message,
+      secureLink: secureLink // Still return the link even if email fails
     });
   }
 });
 
+// Route to generate link without sending email (fallback)
+app.get("/generate-link-only/:email", async (req, res) => {
+  const email = req.params.email;
 
+  if (!email) {
+    return res.status(400).json({ success: false, error: "Email is required" });
+  }
+
+  try {
+    // Generate a unique token for this recipient
+    const jti = crypto.randomUUID();
+    const token = jwt.sign({ email, jti }, SECRET_KEY, { expiresIn: "48h" });
+
+    // Save token in MongoDB
+    await TokenModel.create({ jti, email, used: false });
+
+    // Add to memory store for edit permissions
+    AUTHORIZED_RECIPIENTS.set(email, {
+      token,
+      canEdit: true,
+      pdfData: null,
+    });
+
+    const secureLink = `${DEPLOYED_URL}/view?token=${token}`;
+    console.log(`Generated link for ${email}: ${secureLink}`);
+
+    return res.json({
+      success: true,
+      message: `Link generated for ${email}`,
+      secureLink,
+      note: "Email sending failed, but you can use this link directly"
+    });
+
+  } catch (error) {
+    console.error("Error generating link:", error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
 
 // Route to check if a recipient is authorized
 app.get("/check-recipient", (req, res) => {
